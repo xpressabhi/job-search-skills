@@ -23,7 +23,8 @@ floor, exclusions); the tracker is the memory.
    remaining questions. Do not search with a blank profile; do not invent personal facts.
 3. Read the CV: prefer `cv.text_path`, else `cv.stored_path`, else `cv.path`. The CV is canonical for
    skills/level — if the profile and CV disagree, trust the CV and offer to update the profile.
-4. Read `reference/companies.md` (sweep order) and `reference/search-playbook.md` (how).
+4. Read `reference/companies.md` (starter sweep order), `tracker.mjs company list` (learned sweep
+   targets + ignored companies), and `reference/search-playbook.md` (how).
 
 ## Step 1 — Clarify (only if the request diverges)
 
@@ -34,9 +35,10 @@ on?" — then honor the answer and keep the profile current from then on.
 
 ## Step 2 — Search
 
-Default pool = `reference/companies.md` in table order; use `reference/search-playbook.md` §3–§7 for
-sweep technique, boards, X, query patterns, and the user's company lists. Only go to supplement
-boards when the primary sweep yields too few candidates (or the user asks for a wider search).
+Default pool = `reference/companies.md` in table order, plus learned companies (`tracker.mjs company
+list`); use `reference/search-playbook.md` §3–§7 for sweep technique, boards, X, query patterns, and
+the user's company lists. Ignored companies are never fetched. Only go to supplement boards when the
+primary sweep yields too few candidates (or the user asks for a wider search).
 
 Every candidate passes, in order:
 
@@ -44,13 +46,19 @@ Every candidate passes, in order:
    - `NEW` (exit 0) → first time; keep going.
    - `ALREADY SEEN` (exit 1) → drop it; count it into a "previously surfaced — skipped: N" line.
      Roles the tracker marks `applied`/pipeline/`not_interested` are never reported again.
-2. **Exclusions** from the profile (`search.company_rules`, relocation, etc.) — playbook §9–§10.
+2. **Exclusions** — ignored companies (`tracker.mjs company list`) are never fetched or surfaced;
+   profile `search.company_rules` (product-only, excluded types/companies) and relocation per
+   playbook §9–§10. The `seen` check also warns on stderr if a role sneaks in from an ignored company.
 3. **Eligibility** — remote region + timezone + payroll; on-site/hybrid office + mode (§9).
 4. **Comp floor** from the profile — below floor = skip.
 5. **CV-fit** — score against the CV, not the summary (§11).
 
 Record the posting's own publish date as `--posted YYYY-MM-DD` (empty if not shown) and the exact
 canonical ATS URL — both are reused verbatim in the report.
+
+New strong sources get remembered: after the sweep, `tracker.mjs company add "<Company>" <portal>
+[--ats X]` for any company that yielded several good roles or that the user wants watched — future
+runs sweep it automatically.
 
 ## Step 3 — Score and rank
 
@@ -76,6 +84,14 @@ After the report, offer: tailor the CV for a role, draft outreach to the top 3, 
 
 - Picked a role → `tracker.mjs mark interested <id>` (only `interested` roles may be re-shown).
 - Declined → `mark not_interested <id>` · expired posting → `mark expired <id>`.
+- **Repeat declines → offer the ignore list.** After updating statuses, run
+  `tracker.mjs company candidates --min 2`; if a company shows up, offer: "You've passed on N
+  <Company> roles — ignore them entirely?" On yes:
+  `tracker.mjs company ignore "<Company>" --reason "declined N roles"` (never swept or surfaced
+  again; its open roles are marked `not_interested`, open apply rows aborted).
+- **User names a company to watch** ("keep an eye on Anthropic", "check Acme weekly") →
+  `tracker.mjs company add "<Company>" <portal> [--ats X]`.
+- **"Never show <Company> again"** → `tracker.mjs company ignore "<Company>"` on the spot.
 - Ready to apply → the apply skill drives the queue; `tracker.mjs queue add <id>` is how it starts.
 - Notes: `tracker.mjs note <id> "<text>"` — anything learned (recruiter, referral, timeline).
 

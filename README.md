@@ -57,6 +57,7 @@ Then say **"apply to role 214"** or **"apply to all interested"** to run applica
 ~/.job-search/
   profile.json       your profile: identity, CV path, targets, comp floor, exclusions, answers
   data.json          every role seen, its status, notes and history (the source of truth)
+  companies.json     learned sweep list + ignored companies (never crawled again)
   applications.md    auto-generated human-readable tracker — open it in any editor
   reports/           saved search reports
   cv/                optional copy of your CV for stable uploads
@@ -86,6 +87,8 @@ The skills drive the tracker for you; if you ever want it directly,
 
 - Never re-surfaces a role you've already seen (`applied`/`rejected`/`shown` are permanent memory;
   only `interested` roles may come back)
+- Never re-crawls or re-surfaces an ignored company — pass on enough roles from one and it offers to
+  ignore the company outright; companies you discover can be added to the sweep list for next time
 - Never fabricates an answer: unknown required form questions pause the run and are stored for next time
 - Never stretches your CV to fit a role — partial fits are labeled as such
 - Never reports an aggregator link when the real posting is on the company's own ATS

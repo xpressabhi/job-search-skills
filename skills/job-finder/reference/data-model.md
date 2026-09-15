@@ -6,6 +6,7 @@ Everything lives in `JOB_SEARCH_HOME` (default `~/.job-search/`), never in the r
 ~/.job-search/
   profile.json        # onboarding output — user profile + search preferences
   data.json           # roles, statuses, history, notes, Q&A bank, apply queue (source of truth)
+  companies.json      # learned sweep targets + ignored companies (with reasons)
   applications.md     # auto-generated human view of data.json (never edit by hand)
   reports/            # archived search reports (tracker report save)
   cv/                 # optional copies of the user's CV
@@ -25,6 +26,11 @@ Tracker: `node <skill-dir>/scripts/tracker.mjs <command>` (skill dir = where thi
 | `note <key> <text>` | Append a timestamped note |
 | `role <key>` | Print one role as JSON |
 | `list [--status S] [--limit N] [--all] [--json]` | Recent roles, newest first |
+| `company list [--json]` | Learned sweep targets + ignored companies |
+| `company add <name> <portal> [--ats X] [--note …]` | Remember a discovered company for future sweeps |
+| `company ignore <name> [--reason …]` | Add to the ignore list, remove from learned, mark its open roles `not_interested` (open apply rows aborted) |
+| `company unignore <name>` | Remove from the ignore list |
+| `company candidates [--min N]` | Companies with N+ declined roles (default 2) — the offer-to-ignore signal |
 | `export` | Regenerate `applications.md` (also runs after every write) |
 | `qa get\|set\|list` | Reusable application answers |
 | `queue add\|fill\|list\|get\|set\|step\|complete` | Apply-run state (see below) |
@@ -53,6 +59,21 @@ Tracks one application attempt per role (`queued → filling → awaiting_user �
 2. `queue step <id> "<progress>"` while working
 3. Blocked on captcha/login/consent/knockout → `queue set <id> awaiting_user "<exact blocker>"`
 4. Success → `queue complete <roleId> <queueId> "<portal> submit"`
+
+## Company memory
+
+Two local lists keep sweeps from re-crawling the same ground:
+
+- **Learned** (`companies.json → learned`): companies discovered mid-search that are worth sweeping
+  again (`company add`). Future runs sweep `reference/companies.md`, then these.
+- **Ignored** (`companies.json → blocked`, with reasons; mirrored as plain names into
+  `profile.search.company_rules.exclude_companies`): never swept or surfaced, and `seen` warns on
+  stderr if a role from one slips through. `company ignore` also marks its `shown`/`interested` roles
+  `not_interested` and aborts their open apply rows. `company unignore` removes the list entries only
+  — role statuses are left as they are.
+
+`company candidates --min N` surfaces companies with N+ declined roles — the signal for the agent to
+offer ignoring them (SKILL.md Step 5).
 
 ## profile.json shape (all fields optional; defaults applied on import)
 

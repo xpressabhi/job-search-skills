@@ -4,6 +4,7 @@
 //
 //   profile.json   user profile + search preferences (written by onboarding)
 //   data.json      roles, statuses, notes, history, Q&A bank, apply queue (source of truth)
+//   companies.json   learned sweep targets + ignored companies
 //   applications.md  auto-generated human-readable view
 //   reports/       saved search reports
 
@@ -20,6 +21,7 @@ const DATA_FILE = path.join(HOME, 'data.json');
 const PROFILE_FILE = path.join(HOME, 'profile.json');
 const EXPORT_FILE = path.join(HOME, 'applications.md');
 const REPORTS_DIR = path.join(HOME, 'reports');
+const COMPANIES_FILE = path.join(HOME, 'companies.json');
 
 const STATUSES = [
   'shown', 'interested', 'applied', 'oa', 'phone', 'onsite', 'offer', 'accepted',
@@ -291,6 +293,61 @@ function seedAnswers(data, answers = []) {
   return n;
 }
 
+// ---------------------------------------------------------------- companies
+
+function emptyCompanies() {
+  return { version: 1, learned: [], blocked: [] };
+}
+
+function loadCompanies() {
+  if (!fs.existsSync(COMPANIES_FILE)) return emptyCompanies();
+  const raw = fs.readFileSync(COMPANIES_FILE, 'utf8').trim();
+  if (!raw) return emptyCompanies();
+  const c = JSON.parse(raw);
+  c.learned ||= [];
+  c.blocked ||= [];
+  return c;
+}
+
+function saveCompanies(c) {
+  fs.mkdirSync(HOME, { recursive: true });
+  const tmp = `${COMPANIES_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(c, null, 2)}\n`);
+  fs.renameSync(tmp, COMPANIES_FILE);
+}
+
+function profileBlockedEntries() {
+  try {
+    if (!fs.existsSync(PROFILE_FILE)) return [];
+    const profile = JSON.parse(fs.readFileSync(PROFILE_FILE, 'utf8'));
+    const list = profile?.search?.company_rules?.exclude_companies;
+    if (!Array.isArray(list)) return [];
+    return list
+      .map((e) => (typeof e === 'string' ? { name: e } : e))
+      .filter((e) => e && e.name)
+      .map((e) => ({ name: e.name, reason: e.reason || null, at: e.at || null }));
+  } catch {
+    return [];
+  }
+}
+
+function blockedEntries() {
+  const map = new Map();
+  for (const e of loadCompanies().blocked) {
+    if (e && e.name) map.set(normKey(e.name), { name: e.name, reason: e.reason || null, at: e.at || null });
+  }
+  for (const e of profileBlockedEntries()) {
+    if (!map.has(normKey(e.name))) map.set(normKey(e.name), e);
+  }
+  return [...map.values()];
+}
+
+function isBlockedCompany(name) {
+  const key = normKey(name);
+  if (!key) return false;
+  return blockedEntries().some((e) => normKey(e.name) === key);
+}
+
 // ---------------------------------------------------------------- args + output
 
 function parseArgs(argv) {
@@ -353,6 +410,9 @@ const commands = {
       posted_at: flags.posted, source: flags.source || 'job_search',
     });
     save(data);
+    if (company && isBlockedCompany(company)) {
+      console.error(`warn: "${norm(company)}" is on the ignored list — do not surface this role`);
+    }
     if (!isNew) {
       console.log('ALREADY SEEN');
       console.log(`id=${role.id}`);
@@ -431,6 +491,175 @@ const commands = {
       const loc = [r.mode, r.location].filter(Boolean).join(' · ');
       console.log(`#${r.id} [${r.status}] ${r.company} — ${r.title}${loc ? ` (${loc})` : ''}`);
     }
+  },
+
+  company(pos, flags) {
+    const sub = pos[0];
+    if (sub === 'list') {
+      const c = loadCompanies();
+      const ignored = blockedEntries();
+      if (flags.json) {
+        console.log(JSON.stringify({ learned: c.learned, ignored }, null, 2));
+        return;
+      }
+      if (c.learned.length) {
+        console.log('learned sweep targets (sweep after the starter universe):');
+        for (const e of c.learned) {
+          const meta = [e.portal, e.ats && `[${e.ats}]`, e.note && `(${e.note})`].filter(Boolean).join(' ');
+          console.log(`  ${e.name}${meta ? ` — ${meta}` : ''}`);
+        }
+      } else {
+        console.log('learned sweep targets: (none — add one with "company add <name> <portal>")');
+      }
+      if (ignored.length) {
+        console.log('ignored companies (never sweep or surface):');
+        for (const e of ignored) console.log(`  ${e.name}${e.reason ? ` — ${e.reason}` : ''}`);
+      } else {
+        console.log('ignored companies: (none)');
+      }
+      return;
+    }
+
+    if (sub === 'add') {
+      const [name, portal] = pos.slice(1);
+      if (!name) fail('usage: company add <name> <portal> [--ats ashby|gh|lever|wd|sr|workable|icims|own] [--note text]');
+      const c = loadCompanies();
+      const hit = c.learned.find((e) => normKey(e.name) === normKey(name));
+      const at = nowIso();
+      if (hit) {
+        if (portal) hit.portal = norm(portal);
+        if (flags.ats) hit.ats = norm(flags.ats);
+        if (flags.note) hit.note = norm(flags.note);
+        hit.updated_at = at;
+      } else {
+        c.learned.push({
+          name: norm(name),
+          portal: norm(portal) || null,
+          ats: norm(flags.ats) || null,
+          note: norm(flags.note) || null,
+          added_at: at,
+          updated_at: at,
+        });
+      }
+      saveCompanies(c);
+      console.log(`company ${hit ? 'updated' : 'learned'}: ${norm(name)}${portal ? ` (${norm(portal)})` : ''}`);
+      return;
+    }
+
+    if (sub === 'ignore') {
+      const name = pos.slice(1).join(' ');
+      if (!name) fail('usage: company ignore <name> [--reason "..."]');
+      if (!fs.existsSync(PROFILE_FILE)) fail(`no profile at ${PROFILE_FILE} — run onboarding first`);
+      const reason = norm(flags.reason) || null;
+      const key = normKey(name);
+
+      const profile = loadProfile();
+      profile.search ||= {};
+      profile.search.company_rules ||= {};
+      if (!Array.isArray(profile.search.company_rules.exclude_companies)) {
+        profile.search.company_rules.exclude_companies = [];
+      }
+      const list = profile.search.company_rules.exclude_companies;
+      const already = list.some((e) => normKey(typeof e === 'string' ? e : e?.name) === key);
+      if (!already) list.push(norm(name));
+      fs.mkdirSync(HOME, { recursive: true });
+      fs.writeFileSync(PROFILE_FILE, `${JSON.stringify(profile, null, 2)}\n`);
+
+      const c = loadCompanies();
+      const learnedBefore = c.learned.length;
+      c.learned = c.learned.filter((e) => normKey(e.name) !== key);
+      const at = nowIso();
+      const meta = c.blocked.find((e) => normKey(e.name) === key);
+      if (meta) {
+        meta.reason = reason || meta.reason || null;
+        meta.updated_at = at;
+      } else {
+        c.blocked.push({ name: norm(name), reason, at, updated_at: at });
+      }
+      saveCompanies(c);
+
+      const data = load();
+      let marked = 0;
+      let aborted = 0;
+      for (const role of data.roles) {
+        if (normKey(role.company) !== key || !['shown', 'interested'].includes(role.status)) continue;
+        setStatus(role, 'not_interested', `company ignored${reason ? `: ${reason}` : ''}`);
+        marked += 1;
+        for (const row of data.queue) {
+          if (row.role_id === role.id && OPEN_QUEUE_STATUSES.includes(row.status)) {
+            row.status = 'aborted';
+            row.message = `company ignored${reason ? `: ${reason}` : ''}`;
+            row.updated_at = at;
+            aborted += 1;
+          }
+        }
+      }
+      if (marked || aborted) save(data);
+      console.log(`ignored: ${norm(name)}${reason ? ` (${reason})` : ''}`);
+      if (learnedBefore !== c.learned.length) console.log('  removed from the learned sweep list');
+      console.log(`  ${marked} tracked role(s) marked not_interested, ${aborted} open apply row(s) aborted`);
+      return;
+    }
+
+    if (sub === 'unignore') {
+      const name = pos.slice(1).join(' ');
+      if (!name) fail('usage: company unignore <name>');
+      const key = normKey(name);
+      let removed = 0;
+
+      const profile = loadProfile();
+      profile.search ||= {};
+      profile.search.company_rules ||= {};
+      const list = Array.isArray(profile.search.company_rules.exclude_companies)
+        ? profile.search.company_rules.exclude_companies
+        : [];
+      const next = list.filter((e) => normKey(typeof e === 'string' ? e : e?.name) !== key);
+      removed += list.length - next.length;
+      profile.search.company_rules.exclude_companies = next;
+      fs.writeFileSync(PROFILE_FILE, `${JSON.stringify(profile, null, 2)}\n`);
+
+      const c = loadCompanies();
+      const before = c.blocked.length;
+      c.blocked = c.blocked.filter((e) => normKey(e.name) !== key);
+      removed += before - c.blocked.length;
+      saveCompanies(c);
+
+      console.log(removed ? `unignored: ${norm(name)}` : `not on the ignored list: ${norm(name)}`);
+      return;
+    }
+
+    if (sub === 'candidates') {
+      const min = Math.max(1, Number(flags.min || 2));
+      const blocked = new Set(blockedEntries().map((e) => normKey(e.name)));
+      const declines = new Map();
+      for (const role of load().roles) {
+        if (role.status !== 'not_interested') continue;
+        const key = normKey(role.company);
+        if (!key || blocked.has(key)) continue;
+        const entry = declines.get(key) || { name: role.company, count: 0, last: null };
+        entry.count += 1;
+        if (!entry.last || String(role.last_seen_at) > String(entry.last_at || '')) {
+          entry.last = role.title;
+          entry.last_at = role.last_seen_at;
+        }
+        declines.set(key, entry);
+      }
+      const rows = [...declines.values()]
+        .filter((e) => e.count >= min)
+        .sort((a, b) => b.count - a.count);
+      if (flags.json) {
+        console.log(JSON.stringify(rows, null, 2));
+        return;
+      }
+      if (!rows.length) {
+        console.log(`(no companies with ${min}+ declined roles)`);
+        return;
+      }
+      for (const e of rows) console.log(`${e.name} — ${e.count} declined (last: ${e.last})`);
+      return;
+    }
+
+    fail('usage: company list|add|ignore|unignore|candidates');
   },
 
   export() {
@@ -802,6 +1031,27 @@ const commands = {
       if (run(['profile', 'get', 'identity.name']).trim() !== 'Test User') throw new Error('profile not stored');
       if (run(['qa', 'get', 'visa sponsorship']).trim() !== 'No') throw new Error('answers not seeded');
     });
+    check('company learned list', () => {
+      const out = run(['company', 'add', 'Globex', 'jobs.ashbyhq.com/globex', '--ats', 'ashby']);
+      if (!out.includes('learned')) throw new Error(out);
+      if (!run(['company', 'list']).includes('jobs.ashbyhq.com/globex')) throw new Error('not listed');
+    });
+    check('company candidates + ignore', () => {
+      run(['seen', 'https://example.com/jobs/4', 'Hooli', 'Staff SRE']);
+      run(['seen', 'https://example.com/jobs/5', 'Hooli', 'Platform Engineer']);
+      run(['mark', 'not_interested', 'Hooli:Staff SRE']);
+      run(['mark', 'not_interested', 'Hooli:Platform Engineer']);
+      const cands = run(['company', 'candidates', '--min', '2']);
+      if (!cands.includes('Hooli')) throw new Error(cands);
+      const out = run(['company', 'ignore', 'Hooli', '--reason', 'declined twice']);
+      if (!out.includes('ignored: Hooli')) throw new Error(out);
+      if (!run(['profile', 'get', 'search.company_rules.exclude_companies']).includes('Hooli')) throw new Error('missing from profile exclude list');
+      const list = run(['company', 'list']);
+      if (!list.includes('ignored companies') || !list.includes('Hooli')) throw new Error(list);
+      if (run(['company', 'candidates', '--min', '2']).includes('Hooli')) throw new Error('ignored company still suggested');
+      run(['company', 'unignore', 'Hooli']);
+      if (run(['company', 'list']).includes('Hooli')) throw new Error('Hooli still ignored after unignore');
+    });
     check('export written', () => {
       run(['mark', 'rejected', 'Initech']);
       run(['export']);
@@ -829,6 +1079,7 @@ usage: node tracker.mjs <command> [args]
   note <id|...> <text>                  append a note
   role <id|...>                         print one role as JSON
   list [--status S] [--limit N] [--all] [--json]
+  company list|add|ignore|unignore|candidates   learned companies + ignore list
   export                                regenerate applications.md
   qa get|set|list                       reusable application answers
   queue add|fill|list|get|set|step|complete   apply-run state
