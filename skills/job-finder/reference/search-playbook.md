@@ -151,7 +151,8 @@ history predating the posting) · money flow (direct wire or named EOR only).
 - Run both mode tracks when the profile allows several (remote + local); a strong local offer can
   beat a weak remote one on take-home — the numbers decide.
 - Company memory: `company add` new strong sources so future runs sweep them automatically;
-  `company candidates` surfaces repeat declines worth ignoring (SKILL.md Step 5).
+  `company candidates` surfaces repeat declines worth ignoring; `company verify` (monthly,
+  `--stale 90`) keeps portals from rotting (SKILL.md Step 5 + Universe hygiene).
 - X is the fastest channel for fresh AI/FDE roles; founders post before recruiters.
 - When surface-level applications stall: pick ONE niche, build public reputation (OSS contribution,
   monthly technical post, community presence), then cold-email founders with a specific observation.

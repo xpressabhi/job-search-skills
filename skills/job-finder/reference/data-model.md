@@ -31,6 +31,7 @@ Tracker: `node <skill-dir>/scripts/tracker.mjs <command>` (skill dir = where thi
 | `company ignore <name> [--reason …]` | Add to the ignore list, remove from learned, mark its open roles `not_interested` (open apply rows aborted) |
 | `company unignore <name>` | Remove from the ignore list |
 | `company candidates [--min N]` | Companies with N+ declined roles (default 2) — the offer-to-ignore signal |
+| `company verify [name] [--learned --stale D --dry-run --quiet --json]` | Health-check starter + learned portals; flags dead/moved/blocked (exit 1 on dead) |
 | `export` | Regenerate `applications.md` (also runs after every write) |
 | `qa get\|set\|list` | Reusable application answers |
 | `queue add\|fill\|list\|get\|set\|step\|complete` | Apply-run state (see below) |
@@ -73,7 +74,10 @@ Two local lists keep sweeps from re-crawling the same ground:
   — role statuses are left as they are.
 
 `company candidates --min N` surfaces companies with N+ declined roles — the signal for the agent to
-offer ignoring them (SKILL.md Step 5).
+offer ignoring them (SKILL.md Step 5). `company verify` probes every starter + learned portal (plus
+the Ashby/Greenhouse/Lever board API where one exists — that catches dead boards that still render a
+page) and records the outcome in `companies.json → verified`; results also surface in `company
+list`. `--stale D` limits a run to entries not verified in D days — the learned-aging check.
 
 ## profile.json shape (all fields optional; defaults applied on import)
 

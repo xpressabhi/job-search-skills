@@ -89,6 +89,8 @@ The skills drive the tracker for you; if you ever want it directly,
   only `interested` roles may come back)
 - Never re-crawls or re-surfaces an ignored company — pass on enough roles from one and it offers to
   ignore the company outright; companies you discover can be added to the sweep list for next time
+- Never trusts a rotting board — `company verify` health-checks every starter + learned portal
+  (dead/moved/blocked) and re-checks learned entries older than 90 days
 - Never fabricates an answer: unknown required form questions pause the run and are stored for next time
 - Never stretches your CV to fit a role — partial fits are labeled as such
 - Never reports an aggregator link when the real posting is on the company's own ATS

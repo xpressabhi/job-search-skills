@@ -98,6 +98,17 @@ After the report, offer: tailor the CV for a role, draft outreach to the top 3, 
 `applications.md` in the data home regenerates automatically on every write — tell the user it exists
 when they want a human-readable view (`tracker.mjs export` to rewrite it).
 
+## Universe hygiene (offer monthly, or when a board 404s)
+
+- `tracker.mjs company verify` — health-check starter + learned portals (`--stale 90` re-checks only
+  entries not verified in 3+ months; `--dry-run` lists targets without fetching). `blocked` is
+  expected on known bot-blockers (use a browser); `dead`/`moved` need action; dead exits 1.
+- Fixes go through the learned list, never the installed skill files: `company add "<name>" <new
+  portal>` for a moved board; `company ignore "<name>"` when a company is gone for good.
+- Learned companies that stay dead or never yield across runs → offer to ignore them.
+- Grow coverage deliberately: add 2–5 verified companies per review via `company add` (frontier AI
+  and remote-first first).
+
 ## Statuses
 
 `shown → interested → applied → oa → phone → onsite → offer → accepted`

@@ -22,6 +22,8 @@ const PROFILE_FILE = path.join(HOME, 'profile.json');
 const EXPORT_FILE = path.join(HOME, 'applications.md');
 const REPORTS_DIR = path.join(HOME, 'reports');
 const COMPANIES_FILE = path.join(HOME, 'companies.json');
+const SKILL_REF_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'reference');
+const STARTER_FILE = process.env.JOB_SEARCH_COMPANIES_FILE || path.join(SKILL_REF_DIR, 'companies.md');
 
 const STATUSES = [
   'shown', 'interested', 'applied', 'oa', 'phone', 'onsite', 'offer', 'accepted',
@@ -306,6 +308,7 @@ function loadCompanies() {
   const c = JSON.parse(raw);
   c.learned ||= [];
   c.blocked ||= [];
+  c.verified ||= {};
   return c;
 }
 
@@ -346,6 +349,122 @@ function isBlockedCompany(name) {
   const key = normKey(name);
   if (!key) return false;
   return blockedEntries().some((e) => normKey(e.name) === key);
+}
+
+function portalUrl(cell) {
+  const clean = String(cell || '').replace(/\s*\(.*?\)\s*/g, ' ').trim();
+  const token = clean.split(/\s+/)[0];
+  if (!token || !token.includes('.')) return null;
+  return /^https?:\/\//i.test(token) ? token : `https://${token}`;
+}
+
+function loadStarterCompanies() {
+  if (!fs.existsSync(STARTER_FILE)) return [];
+  const out = [];
+  for (const line of fs.readFileSync(STARTER_FILE, 'utf8').split('\n')) {
+    if (!line.startsWith('|')) continue;
+    const cells = line.split('|').slice(1, -1).map((c) => c.trim());
+    if (cells.length < 3) continue;
+    const [name, portal, ats] = cells;
+    if (!name || name === 'Company' || /^[-: ]+$/.test(name)) continue;
+    const url = portalUrl(portal);
+    if (!url) continue;
+    out.push({ name, url, ats: ats || null, source: 'starter' });
+  }
+  return out;
+}
+
+const VERIFY_ORDER = { dead: 0, moved: 1, error: 2, unreachable: 3, blocked: 4, warn: 5, ok: 6 };
+const daysSince = (iso) => (Date.now() - Date.parse(iso)) / 86400000;
+
+async function mapPool(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+    for (;;) {
+      const i = next;
+      next += 1;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function fetchStatus(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const started = Date.now();
+  const normalize = (u) => u.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
+  try {
+    const res = await fetch(url, {
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: { 'user-agent': 'job-search-skills/1.0 (portal health check)' },
+    });
+    const ms = Date.now() - started;
+    const finalUrl = res.url || url;
+    try {
+      await res.body?.cancel();
+    } catch { /* body already gone */ }
+    const http = res.status;
+    if (http >= 200 && http < 300) {
+      return normalize(finalUrl) === normalize(url)
+        ? { status: 'ok', http, finalUrl, ms }
+        : { status: 'moved', http, finalUrl, ms };
+    }
+    if (http === 404 || http === 410) return { status: 'dead', http, finalUrl, ms };
+    const workday = /myworkdayjobs\.com/i.test(url);
+    if (http === 403 || http === 406 || http === 429 || (workday && http >= 500)) {
+      return { status: 'blocked', http, finalUrl, ms };
+    }
+    if (http >= 500) return { status: 'error', http, finalUrl, ms };
+    return { status: 'warn', http, finalUrl, ms };
+  } catch (err) {
+    return {
+      status: 'unreachable',
+      http: null,
+      error: err.name === 'AbortError' ? `timeout ${timeoutMs}ms` : err.message,
+      ms: Date.now() - started,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function atsApiUrl(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    const slug = u.pathname.split('/').filter(Boolean)[0];
+    if (!slug) return null;
+    if (host === 'ashbyhq.com' || host.endsWith('.ashbyhq.com')) {
+      return { ats: 'ashby', url: `https://api.ashbyhq.com/posting-api/job-board/${slug}` };
+    }
+    if (host === 'greenhouse.io' || host.endsWith('.greenhouse.io')) {
+      return { ats: 'gh', url: `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs` };
+    }
+    if (host === 'lever.co' || host.endsWith('.lever.co')) {
+      return { ats: 'lever', url: `https://api.lever.co/v0/postings/${slug}?mode=json` };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function checkPortal(url, timeoutMs) {
+  const res = await fetchStatus(url, timeoutMs);
+  if (res.status !== 'ok' && res.status !== 'moved') return res;
+  const api = atsApiUrl(url);
+  if (!api) return res;
+  const apiRes = await fetchStatus(api.url, timeoutMs);
+  res.api = { url: api.url, http: apiRes.http ?? null };
+  if (apiRes.http === 404 || apiRes.http === 410) {
+    return { ...res, status: 'dead', http: apiRes.http, via: 'board API' };
+  }
+  return res;
 }
 
 // ---------------------------------------------------------------- args + output
@@ -493,7 +612,7 @@ const commands = {
     }
   },
 
-  company(pos, flags) {
+  async company(pos, flags) {
     const sub = pos[0];
     if (sub === 'list') {
       const c = loadCompanies();
@@ -505,7 +624,9 @@ const commands = {
       if (c.learned.length) {
         console.log('learned sweep targets (sweep after the starter universe):');
         for (const e of c.learned) {
-          const meta = [e.portal, e.ats && `[${e.ats}]`, e.note && `(${e.note})`].filter(Boolean).join(' ');
+          const rec = c.verified?.[normKey(e.name)];
+          const checked = rec ? `checked ${String(rec.at).slice(0, 10)} ${rec.status}` : null;
+          const meta = [e.portal, e.ats && `[${e.ats}]`, e.note && `(${e.note})`, checked].filter(Boolean).join(' ');
           console.log(`  ${e.name}${meta ? ` — ${meta}` : ''}`);
         }
       } else {
@@ -527,7 +648,10 @@ const commands = {
       const hit = c.learned.find((e) => normKey(e.name) === normKey(name));
       const at = nowIso();
       if (hit) {
-        if (portal) hit.portal = norm(portal);
+        if (portal) {
+          hit.portal = norm(portal);
+          delete c.verified?.[normKey(name)];
+        }
         if (flags.ats) hit.ats = norm(flags.ats);
         if (flags.note) hit.note = norm(flags.note);
         hit.updated_at = at;
@@ -568,6 +692,7 @@ const commands = {
       const c = loadCompanies();
       const learnedBefore = c.learned.length;
       c.learned = c.learned.filter((e) => normKey(e.name) !== key);
+      delete c.verified?.[key];
       const at = nowIso();
       const meta = c.blocked.find((e) => normKey(e.name) === key);
       if (meta) {
@@ -659,7 +784,89 @@ const commands = {
       return;
     }
 
-    fail('usage: company list|add|ignore|unignore|candidates');
+    if (sub === 'verify') {
+      const filter = pos.slice(1).join(' ').trim();
+      const timeoutMs = Math.max(1000, Number(flags.timeout || 8000));
+      const concurrency = Math.min(16, Math.max(1, Number(flags.concurrency || 8)));
+      const c = loadCompanies();
+      const verified = (c.verified ||= {});
+
+      const noPortal = [];
+      const targets = [];
+      for (const e of c.learned) {
+        const url = portalUrl(e.portal || '');
+        if (url) targets.push({ name: e.name, url, ats: e.ats || null, source: 'learned' });
+        else noPortal.push(e.name);
+      }
+      if (!flags.learned) {
+        const keys = new Set(targets.map((t) => normKey(t.name)));
+        for (const t of loadStarterCompanies()) {
+          if (!keys.has(normKey(t.name))) targets.push(t);
+        }
+      }
+      let due = filter ? targets.filter((t) => normKey(t.name).includes(normKey(filter))) : targets;
+      if (flags.stale && Number.isFinite(Number(flags.stale))) {
+        const days = Number(flags.stale);
+        due = due.filter((t) => {
+          const rec = verified[normKey(t.name)];
+          return !rec?.at || daysSince(rec.at) >= days;
+        });
+      }
+
+      if (flags['dry-run']) {
+        for (const t of due) console.log(`${t.source}  ${t.name} — ${t.url}`);
+        if (noPortal.length) console.log(`skipped (no portal): ${noPortal.join(', ')}`);
+        console.log(`${due.length} portal(s) would be checked`);
+        return;
+      }
+
+      const at = nowIso();
+      const results = await mapPool(due, concurrency, async (t) => ({
+        ...t,
+        ...(await checkPortal(t.url, timeoutMs)),
+      }));
+      for (const r of results) {
+        const key = normKey(r.name);
+        verified[key] = { at, status: r.status, http: r.http ?? null, url: r.url, final_url: r.finalUrl || null };
+        if (r.source === 'learned') {
+          const entry = c.learned.find((e) => normKey(e.name) === key);
+          if (entry) entry.last_verified_at = at;
+        }
+      }
+      c.verified = verified;
+      saveCompanies(c);
+
+      const sorted = [...results].sort((a, b) =>
+        (VERIFY_ORDER[a.status] ?? 9) - (VERIFY_ORDER[b.status] ?? 9) || a.name.localeCompare(b.name),
+      );
+      if (flags.json) {
+        console.log(JSON.stringify(sorted, null, 2));
+      } else {
+        for (const r of sorted) {
+          if (flags.quiet && r.status === 'ok') continue;
+          const detail = r.status === 'moved' ? `${r.url} → ${r.finalUrl}`
+            : r.status === 'blocked' ? `${r.url} (HTTP ${r.http}, bot-block — use a browser)`
+              : r.status === 'unreachable' ? `${r.url} (${r.error})`
+                : r.status === 'ok' ? r.url
+                  : `${r.url} (HTTP ${r.http}${r.via ? ` via ${r.via}` : ''})`;
+          console.log(`${r.status.padEnd(11)} ${r.name} — ${detail}`);
+        }
+        const counts = {};
+        for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
+        const parts = Object.entries(counts)
+          .sort((a, b) => (VERIFY_ORDER[a[0]] ?? 9) - (VERIFY_ORDER[b[0]] ?? 9))
+          .map(([k, v]) => `${v} ${k}`);
+        console.log(`checked ${results.length} portal(s)${parts.length ? `: ${parts.join(' · ')}` : ''}`);
+        if (noPortal.length) console.log(`skipped (no portal): ${noPortal.join(', ')}`);
+        if (counts.dead) {
+          console.log('dead boards: point at the new portal with "company add", or "company ignore" if gone for good');
+        }
+      }
+      if (results.some((r) => r.status === 'dead')) process.exitCode = 1;
+      return;
+    }
+
+    fail('usage: company list|add|ignore|unignore|candidates|verify');
   },
 
   export() {
@@ -1052,6 +1259,13 @@ const commands = {
       run(['company', 'unignore', 'Hooli']);
       if (run(['company', 'list']).includes('Hooli')) throw new Error('Hooli still ignored after unignore');
     });
+    check('company verify dry-run', () => {
+      const all = run(['company', 'verify', '--dry-run']);
+      if (!all.includes('OpenAI')) throw new Error('starter list not parsed');
+      if (!all.includes('Globex')) throw new Error('learned company missing');
+      const one = run(['company', 'verify', 'Globex', '--learned', '--dry-run']);
+      if (!one.includes('Globex') || one.includes('OpenAI')) throw new Error(one);
+    });
     check('export written', () => {
       run(['mark', 'rejected', 'Initech']);
       run(['export']);
@@ -1080,6 +1294,8 @@ usage: node tracker.mjs <command> [args]
   role <id|...>                         print one role as JSON
   list [--status S] [--limit N] [--all] [--json]
   company list|add|ignore|unignore|candidates   learned companies + ignore list
+  company verify [name] [--learned --stale D --dry-run --quiet --json]
+                                                health-check starter + learned portals
   export                                regenerate applications.md
   qa get|set|list                       reusable application answers
   queue add|fill|list|get|set|step|complete   apply-run state
@@ -1099,4 +1315,4 @@ if (!commands[cmd]) {
   fail(`unknown command: ${cmd}`);
 }
 const { pos, flags } = parseArgs(rest);
-commands[cmd](pos, flags);
+await commands[cmd](pos, flags);
