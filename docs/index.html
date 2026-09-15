@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>job-search-skills — your job search, as two agent skills</title>
+<meta name="description" content="Find roles you can actually get, then apply through your own Chrome — with a local tracker that remembers everything. MIT, no server, no account.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b7f5c'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23fdfdfc'/%3E%3C/svg%3E">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f7f5;
+    --surface: #fdfdfc;
+    --text: #191b1a;
+    --muted: #6c706d;
+    --line: #e5e5e2;
+    --code: #f1f1ee;
+    --accent: #0b7f5c;
+    --accent-ink: #f4fbf8;
+    --accent-soft: rgba(11, 127, 92, .07);
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1110;
+      --surface: #161917;
+      --text: #e9ebe9;
+      --muted: #9aa09c;
+      --line: #272b28;
+      --code: #141715;
+      --accent: #3ecf8e;
+      --accent-ink: #07271a;
+      --accent-soft: rgba(62, 207, 142, .08);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, ui-sans-serif, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono, code, pre { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 0 24px; }
+
+  /* nav */
+  header {
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 10;
+    background: var(--bg);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+  }
+  nav { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+  nav .brand { font-weight: 600; letter-spacing: -.01em; color: var(--text); }
+  nav .brand span { color: var(--accent); }
+  nav .links { display: flex; gap: 18px; font-size: .9rem; }
+  nav .links a { color: var(--muted); }
+  nav .links a:hover { color: var(--text); text-decoration: none; }
+
+  /* hero */
+  .hero { display: grid; grid-template-columns: 1.15fr .85fr; gap: 56px; align-items: center; padding: 72px 0 88px; }
+  h1 { font-size: clamp(2rem, 4.6vw, 3rem); line-height: 1.08; letter-spacing: -.03em; margin: 0 0 16px; max-width: 14ch; }
+  .sub { color: var(--muted); margin: 0 0 28px; max-width: 46ch; }
+  .run { display: inline-flex; align-items: center; gap: 8px; font-size: .82rem; color: var(--muted); margin-bottom: 18px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+
+  /* install block */
+  .install { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); overflow: hidden; max-width: 560px; }
+  .bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: .78rem; color: var(--muted); }
+  .copy { font: inherit; font-size: .78rem; color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 7px; padding: 3px 10px; cursor: pointer; }
+  .copy:hover { color: var(--text); border-color: var(--muted); }
+  .copy:active { transform: translateY(1px); }
+  .install pre { margin: 0; padding: 14px; overflow-x: auto; font-size: .84rem; line-height: 1.7; background: var(--code); }
+  .install pre .t { color: var(--muted); }
+
+  /* session card */
+  .session { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: 18px 20px; font-size: .84rem; line-height: 1.9; }
+  .session .cap { font-size: .72rem; letter-spacing: .04em; color: var(--muted); display: block; margin-bottom: 10px; }
+  .session .you { color: var(--text); }
+  .session .you::before { content: "→ "; color: var(--accent); }
+  .session .out { color: var(--muted); }
+  .session hr { border: 0; border-top: 1px dashed var(--line); margin: 10px 0; }
+
+  /* sections */
+  section { padding: 64px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 1.05rem; letter-spacing: -.01em; margin: 0 0 8px; }
+  .lede { color: var(--muted); margin: 0 0 36px; max-width: 58ch; }
+
+  /* skills rows */
+  .skill { display: grid; grid-template-columns: 44px 1fr 300px; gap: 24px; padding: 26px 0; border-top: 1px solid var(--line); align-items: start; }
+  .skill:first-of-type { border-top: 0; }
+  .skill .no { font-size: .8rem; color: var(--muted); padding-top: 3px; }
+  .skill h3 { margin: 0 0 6px; font-size: 1rem; }
+  .skill p { margin: 0; color: var(--muted); max-width: 46ch; }
+  .skill ul { margin: 2px 0 0; padding: 0; list-style: none; font-size: .84rem; }
+  .skill li { color: var(--muted); padding: 5px 0 5px 16px; position: relative; border-bottom: 1px solid var(--line); }
+  .skill li:last-child { border-bottom: 0; }
+  .skill li::before { content: ""; position: absolute; left: 2px; top: .95em; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
+  /* steps */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; }
+  .steps > div { border-top: 2px solid var(--text); padding-top: 14px; }
+  .steps .no { font-size: .78rem; color: var(--muted); display: block; margin-bottom: 8px; }
+  .steps h3 { margin: 0 0 6px; font-size: .95rem; }
+  .steps p { margin: 0; color: var(--muted); font-size: .9rem; }
+
+  /* local */
+  .local { display: grid; grid-template-columns: 1fr 1.1fr; gap: 48px; align-items: start; }
+  .tree { background: var(--code); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; font-size: .84rem; line-height: 1.9; }
+  .tree .d { color: var(--accent); }
+  .tree .c { color: var(--muted); }
+  .report { margin-top: 12px; font-size: .84rem; line-height: 2; color: var(--muted); }
+  .report b { color: var(--text); font-weight: 600; }
+
+  /* free strip */
+  .free { background: var(--accent-soft); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .free .wrap { display: flex; flex-wrap: wrap; gap: 10px 28px; align-items: baseline; justify-content: space-between; padding-top: 34px; padding-bottom: 34px; }
+  .free p { margin: 0; }
+  .free .note { color: var(--muted); font-size: .86rem; }
+
+  footer { padding: 36px 0 56px; font-size: .85rem; color: var(--muted); display: flex; gap: 18px; flex-wrap: wrap; }
+  footer a { color: var(--muted); }
+  footer a:hover { color: var(--text); text-decoration: none; }
+
+  @media (max-width: 820px) {
+    .hero { grid-template-columns: 1fr; gap: 36px; padding: 52px 0 64px; }
+    .skill { grid-template-columns: 32px 1fr; }
+    .skill ul { grid-column: 2; }
+    .steps { grid-template-columns: 1fr; gap: 28px; }
+    .local { grid-template-columns: 1fr; gap: 28px; }
+    section { padding: 52px 0; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .rise { animation: rise .65s cubic-bezier(.16, 1, .3, 1) both; }
+    .rise.d1 { animation-delay: .07s; }
+    .rise.d2 { animation-delay: .14s; }
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+
+<header>
+  <nav class="wrap" aria-label="Main">
+    <span class="brand">job-search-skills<span>.</span></span>
+    <div class="links">
+      <a href="https://github.com/xpressabhi/job-search-skills">GitHub</a>
+      <a href="https://github.com/xpressabhi/job-search-skills#readme">README</a>
+    </div>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <div>
+      <p class="run rise"><span class="dot" aria-hidden="true"></span> local · open source · MIT</p>
+      <h1 class="rise">Your job search, as two agent skills.</h1>
+      <p class="sub rise d1">Find roles you can actually get, then apply through your own Chrome — with a local tracker that remembers everything.</p>
+      <div class="install rise d2">
+        <div class="bar">
+          <span>install — one line</span>
+          <button class="copy" type="button" data-copy="npx skills add xpressabhi/job-search-skills -s job-finder -s apply-to-jobs -a '*' -g -y">Copy</button>
+        </div>
+        <pre><code><span class="t">$</span> npx skills add xpressabhi/job-search-skills \
+    -s job-finder -s apply-to-jobs -a '*' -g -y</code></pre>
+      </div>
+    </div>
+    <div class="session rise d2 mono" role="img" aria-label="Example agent session: ask for jobs, then apply">
+      <span class="cap">example session</span>
+      <div class="you">find me jobs</div>
+      <div class="out">8 roles · ranked by fit · 2 stale flagged · 5 skipped as seen</div>
+      <hr>
+      <div class="you">apply to all interested</div>
+      <div class="out">3 submitted · 1 paused (captcha) · answers saved</div>
+    </div>
+  </div>
+
+  <section>
+    <div class="wrap">
+      <h2>What you get</h2>
+      <p class="lede">Two skills that work together: one finds and remembers, one applies — both on your machine.</p>
+
+      <div class="skill">
+        <span class="no mono">01</span>
+        <div>
+          <h3>job-finder</h3>
+          <p>Interviews you once from your CV, then sweeps your companies and boards every run — filtering by real eligibility, not marketing.</p>
+        </div>
+        <ul>
+          <li>Remote region, timezone, and comp floor enforced</li>
+          <li>Learns companies you like, ignores the ones you don't</li>
+          <li>Never surfaces the same role twice</li>
+        </ul>
+      </div>
+
+      <div class="skill">
+        <span class="no mono">02</span>
+        <div>
+          <h3>apply-to-jobs</h3>
+          <p>Autofills and submits applications in your own visible Chrome — the form sees you, not a bot service.</p>
+        </div>
+        <ul>
+          <li>Ashby · Greenhouse · Lever · Workable · Workday +3</li>
+          <li>Pauses only on captchas, logins, consent, knockouts</li>
+          <li>Answers banked so nothing is ever invented</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>How it works</h2>
+      <p class="lede">One setup conversation. After that it's one-liners.</p>
+      <div class="steps">
+        <div>
+          <span class="no mono">step 1</span>
+          <h3>Onboard once</h3>
+          <p>Point it at your CV. It confirms what it found and asks only what the CV can't answer.</p>
+        </div>
+        <div>
+          <span class="no mono">step 2</span>
+          <h3>Sweep &amp; rank</h3>
+          <p>Starter companies, learned sources, and boards — verified live, ranked by fit.</p>
+        </div>
+        <div>
+          <span class="no mono">step 3</span>
+          <h3>Apply</h3>
+          <p>Say “apply to all interested”. Chrome does the typing; the tracker records every outcome.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap local">
+      <div>
+        <h2>Local by default</h2>
+        <p class="lede">No server, no account, no external apply service. Profile, history, notes, and CV stay on disk.</p>
+        <div class="report">
+          <b>Ranked by real fit</b><br>
+          #3 Stripe — Staff Engineer · $210–260k · remote (EU) · confirmed<br>
+          #4 Glean — Senior SWE, Infra · $180–230k · hybrid BLR · likely
+        </div>
+      </div>
+      <div>
+        <div class="tree mono">
+          <div><span class="d">~/.job-search/</span></div>
+          <div>├ profile.json <span class="c">— you</span></div>
+          <div>├ data.json <span class="c">— every role seen</span></div>
+          <div>├ companies.json <span class="c">— learned &amp; ignored</span></div>
+          <div>└ applications.md <span class="c">— human-readable</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="free">
+    <div class="wrap">
+      <p><strong>Free to start</strong> — runs on <a href="https://opencode.ai">OpenCode</a> with Zen's free models.</p>
+      <p class="note">More tokens? <a href="https://opencode.ai/go?ref=0NM6X94JBD">OpenCode Go</a>, $10/month (referral link).</p>
+    </div>
+  </div>
+</main>
+
+<footer class="wrap">
+  <span>MIT</span>
+  <a href="https://github.com/xpressabhi/job-search-skills">GitHub</a>
+  <a href="https://github.com/xpressabhi/job-search-skills#readme">Full README</a>
+  <span>Works with OpenCode, Claude Code, Codex, Cursor.</span>
+</footer>
+
+<script>
+  document.querySelectorAll(".copy").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.copy);
+        btn.textContent = "Copied";
+        setTimeout(() => (btn.textContent = "Copy"), 1600);
+      } catch {
+        btn.textContent = "Select manually";
+      }
+    });
+  });
+</script>
+</body>
+</html>

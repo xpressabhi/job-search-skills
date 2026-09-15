@@ -33,6 +33,29 @@ ln -s "$PWD/job-search-skills/skills/apply-to-jobs" ~/.agents/skills/apply-to-jo
 ```
 </details>
 
+## Updating
+
+```bash
+npx -y skills update -g -y     # refresh global installs
+```
+
+<details>
+<summary>Auto-update in OpenCode</summary>
+
+Save to `~/.config/opencode/plugins/skills-update.js` — runs on every session start:
+
+```js
+export const SkillsUpdate = async ({ $ }) => ({
+  event: async ({ event }) => {
+    if (event.type === "session.created") await $`npx -y skills update -g -y`.quiet().nothrow()
+  },
+})
+```
+</details>
+
+Clone+symlink installs (manual install above) just need `git pull`; other agents can cron
+`0 9 * * * npx -y skills update -g -y`.
+
 ## Start free with OpenCode
 
 You can run both skills for free with [OpenCode](https://opencode.ai): install it, `/connect` to
