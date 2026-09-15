@@ -10,6 +10,8 @@ Columns: **Company** | **Portal (root)** | **ATS** | **Hiring signals**.
 ATS legend: `gh` = Greenhouse (job-boards.greenhouse.io/&lt;slug&gt;) · `ashby` = jobs.ashbyhq.com/&lt;slug&gt; ·
 `lever` = jobs.lever.co/&lt;slug&gt; · `wd` = Workday (&lt;host&gt;.myworkdayjobs.com) · `sr` = SmartRecruiters ·
 `workable` = apply.workable.com/&lt;slug&gt; · `icims` = &lt;host&gt;.icims.com · `own` = self-hosted.
+Other ATS seen in the wild: BambooHR (`<co>.bamboohr.com/careers`), Recruitee (`<co>.recruitee.com`),
+Teamtailor, Personio — no query params; scan the board root and treat as `own` for sweeping.
 
 Sweep priority = table order: frontier AI → big tech → cloud/SaaS → remote-first/global-payroll →
 regional HQs. A table that doesn't match the user's region can be skipped — say so in the report.

@@ -49,9 +49,12 @@ Every candidate passes, in order:
 2. **Exclusions** — ignored companies (`tracker.mjs company list`) are never fetched or surfaced;
    profile `search.company_rules` (product-only, excluded types/companies) and relocation per
    playbook §9–§10. The `seen` check also warns on stderr if a role sneaks in from an ignored company.
-3. **Eligibility** — remote region + timezone + payroll; on-site/hybrid office + mode (§9).
-4. **Comp floor** from the profile — below floor = skip.
-5. **CV-fit** — score against the CV, not the summary (§11).
+3. **Liveness** — fetch the posting; a dead link never reaches the report. `expired` / `redirected` /
+   `not_found` / `suspicious` → drop and count into a "dead/expired — skipped: N" line; anti-bot
+   blocked → retry once, then keep but flag `unverified` (playbook §9a).
+4. **Eligibility** — remote region + timezone + payroll; on-site/hybrid office + mode (§9).
+5. **Comp floor** from the profile — below floor = skip.
+6. **CV-fit** — score against the CV, not the summary (§11).
 
 Record the posting's own publish date as `--posted YYYY-MM-DD` (empty if not shown) and the exact
 canonical ATS URL — both are reused verbatim in the report.
@@ -76,9 +79,10 @@ discovery-only) · **Salary** (published, else `estimate: …`) · **Mode** (rem
 on-site <city>) · **Level/Stack** · **Eligibility** (confirmed / likely / unverified) ·
 **Timezone/Commute** · **Why it stands out** (one line; include stale/stretch flags here).
 
-Add skip lines where relevant: "previously surfaced — skipped: N", "already applied — skipped: N".
-After the report, offer: tailor the CV for a role, draft outreach to the top 3, or apply now
-(hand off to the **apply-to-jobs** skill).
+Add skip lines where relevant: "previously surfaced — skipped: N", "already applied — skipped: N",
+"dead/expired — skipped: N", and one coverage line — "swept N companies — M had no matching roles"
+— so the user can see the sweep really happened. After the report, offer: tailor the CV for a role,
+draft outreach to the top 3, or apply now (hand off to the **apply-to-jobs** skill).
 
 ## Step 5 — Update statuses from the user's reaction
 
@@ -119,4 +123,6 @@ Terminal: `rejected` · `withdrew` · `not_interested` · `expired`
 - The tracker is the only source of truth for what was shown/applied — never report a role whose
   dedupe check says `ALREADY SEEN` (unless its status is exactly `interested`).
 - Never invent facts about the user; never stretch the CV; never hide a red flag to fill the report.
+- Search by derived terms only (titles, skills, cities, sectors) — never paste CV text, name, email,
+  phone, or URLs containing them into search queries or third-party services.
 - Keep personal data out of the repo: it belongs in `~/.job-search/` only.

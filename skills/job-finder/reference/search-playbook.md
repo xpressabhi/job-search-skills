@@ -25,6 +25,8 @@ all show one; for boards without dates, newest-first order is the signal).
 - **Lever:** `jobs.lever.co/<slug>` — team + location filters in the sidebar.
 - **Workday:** no URL shortcut — open the root, use the Location / Remote filters.
 - **Own boards (Google/MS/Amazon/Stripe/Netflix…):** site search box; filter country + remote.
+- **Other ATS (BambooHR `<co>.bamboohr.com/careers`, Recruitee `<co>.recruitee.com`, Teamtailor,
+  Personio):** no query params — scan the board root; the company's `/careers` page links its ATS.
 - **LinkedIn fallback:** `linkedin.com/company/<slug>/jobs` catches roles posted only to LinkedIn.
 - **ATS site-query cross-check** (after the sweep): restrict to known slugs —
   `site:job-boards.greenhouse.io OR site:jobs.ashbyhq.com OR site:jobs.lever.co ("Staff Software Engineer" OR "Principal Software Engineer") (<country> OR <city> OR Remote)`.
@@ -112,6 +114,23 @@ actual mode (days/week on-site vs hybrid vs "remote within country"), and that t
 `search.cities`. "Relocation possible" is not the same as "this role is in <city>" — treat it as
 unverified.
 
+## 9a. Posting liveness (never report a dead link)
+
+Aggregators and reposts go stale fast — the posting itself gets fetched and classified before it
+reaches the report:
+
+- `expired`: page loads but says "no longer accepting applications", "position filled", "posting
+  removed", "job no longer available" → drop.
+- `redirected`: URL bounces to a careers home/search page, or lands on a different job → drop.
+- `not_found`: 404/410, or "job not found" content → drop.
+- `suspicious`: application/verification fees, no employer name, recruiter-only contact without a
+  company site → drop, warn (§10).
+- Fuzzy matches are fine (minor title/company wording); a different role entirely is not.
+- Blocked fetch (captcha, 403, anti-bot): retry once; still blocked → keep but mark `unverified` and
+  rank accordingly — never silently call it live. Known bot-blockers: Workday roots (companies.md
+  Notes), X, LinkedIn.
+- Aggregate a kill rate into the report: "dead/expired — skipped: N" (see SKILL.md Step 4).
+
 ## 10. Red flags — warn, don't hide
 
 - Crypto/token pay, upfront or "verification" fees, bank details/OTP/KYC requests early
@@ -135,14 +154,22 @@ history predating the posting) · money flow (direct wire or named EOR only).
   Drop roles whose required skills are absent from the CV; surface ~70%+ matches as
   `partial fit` with the gap named; never stretch the CV.
 - Remote-USD reference bands (when the profile's floor is USD): Junior/Mid $40–80k · Senior $80–130k ·
-  Staff/Principal $120–200k+ · Leadership $150–250k+. Local-currency benchmarks vary by market — use
-  the postings themselves plus one benchmarking site, and rank by true annual take-home, not by the
-  currency format.
+  Staff/Principal $120–200k+ · Leadership $150–250k+. Local-currency bands vary by market — anchor on
+  the postings themselves plus the benchmark discipline below, and rank by true annual take-home, not
+  by the currency format.
 - Order: eligibility confirmed > published salary > CV-fit > company quality > timezone/commute fit.
 - Published ranges strongly preferred; when absent, write `estimate: <X>` and rank below roles that
   publish. Note equity-only-heavy offers and flag if base is below the floor.
 - Cross-mode comparison: convert everything to the user's primary currency at a consistent rate
   (state the rate assumption once) before ordering the report.
+- **Benchmark like this, never from one source:** triangulate at least two (BLS OEWS by SOC code,
+  levels.fyi for big tech, Glassdoor/Comparably self-reports, sector guides — Mercer/Robert Half for
+  professional services, Candid/990s for nonprofits), date the underlying data (`as of 2025`) and say
+  when it lags, and widen the band + flag thin samples (<25 reports, no BLS match). Never mix base
+  with total comp unlabeled; sector matters (same title at a $50M foundation ≠ a $5M nonprofit).
+- **What must never raise a rank:** logo/brand recognition, aggregator ranking (paid boosts),
+  title-match alone, recruiter urgency. **What overrides the order entirely:** scam/fee signals,
+  knockouts, and dead postings (§9a, §10) — however good the math looks.
 
 ## 12. Tips
 
