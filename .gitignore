@@ -1,0 +1,15 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+*.tmp
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Local test artifacts
+node_modules/
