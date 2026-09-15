@@ -33,6 +33,14 @@ ln -s "$PWD/job-search-skills/skills/apply-to-jobs" ~/.agents/skills/apply-to-jo
 ```
 </details>
 
+## Start free with OpenCode
+
+You can run both skills for free with [OpenCode](https://opencode.ai): install it, `/connect` to
+OpenCode Zen, and pick any `*-free` model with `/models` — a $0 setup.
+
+When the free models aren't enough, [OpenCode Go](https://opencode.ai/go?ref=0NM6X94JBD) gets you
+more tokens on open coding models for $10/month (referral link).
+
 ## First run
 
 Just say **"find me jobs"** (or "set up my job search"). The first run asks for your **CV — a local
@@ -62,25 +70,8 @@ Status lifecycle per role:
 `shown → interested → applied → oa → phone → onsite → offer → accepted`,
 with terminal states `rejected`, `withdrew`, `not_interested`, `expired`.
 
-## Tracker cheat sheet
-
-The skills call this for you, but it's a normal CLI:
-
-```bash
-T=~/.agents/skills/job-finder/scripts/tracker.mjs   # installed path
-
-node $T stats                                   # counts by status
-node $T list --status interested                # roles you picked
-node $T list --status applied --limit 50        # what you've applied to
-node $T mark rejected 214                       # 214 = role id from list
-node $T mark rejected "Acme:Staff Engineer"     # or by company/title
-node $T note 214 "recruiter call Tue 3pm"
-node $T export                                  # rewrite applications.md
-node $T qa list                                 # stored form answers
-node $T profile show                            # your profile
-```
-
-`node $T help` lists everything, including the apply queue.
+The skills drive the tracker for you; if you ever want it directly,
+`node <skill-dir>/scripts/tracker.mjs help` lists the CLI.
 
 ## Requirements
 

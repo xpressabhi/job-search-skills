@@ -29,7 +29,8 @@ floor, exclusions); the tracker is the memory.
 
 "Find me jobs" needs no questions — go. If the request adds constraints ("only remote", "in Berlin",
 "part-time"), honor them for this run; if it sounds like a lasting preference, update the profile
-(`tracker.mjs profile set …`) and say so.
+(`tracker.mjs profile set …`) and say so. Not sure which? Ask once — "just this run, or from now
+on?" — then honor the answer and keep the profile current from then on.
 
 ## Step 2 — Search
 
