@@ -19,6 +19,11 @@ all show one; for boards without dates, newest-first order is the signal).
 
 ## 2. Per-portal sweep technique
 
+**Fastest path first:** every major ATS exposes a public JSON listing endpoint — verified URLs,
+fields, and tenant-validation traps in `reference/ats-apis.md`. Prefer JSON over rendering pages
+(faster, structured `workplaceType`/`publishedAt`/salary fields, no dead-board surprises); fall back
+to the board URL when an endpoint is missing or blocked.
+
 - **Greenhouse:** `boards.greenhouse.io/<slug>?location=<Country>` + `?query=` for keywords
   ("Staff", "Principal", "AI Engineer", "Remote").
 - **Ashby:** `jobs.ashbyhq.com/<slug>?locations=<Country>` — the typeahead accepts partial names.

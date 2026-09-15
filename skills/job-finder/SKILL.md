@@ -36,9 +36,10 @@ on?" — then honor the answer and keep the profile current from then on.
 ## Step 2 — Search
 
 Default pool = `reference/companies.md` in table order, plus learned companies (`tracker.mjs company
-list`); use `reference/search-playbook.md` §3–§7 for sweep technique, boards, X, query patterns, and
-the user's company lists. Ignored companies are never fetched. Only go to supplement boards when the
-primary sweep yields too few candidates (or the user asks for a wider search).
+list`); use `reference/search-playbook.md` §2–§7 for sweep technique (ATS JSON endpoints first —
+`reference/ats-apis.md`), boards, X, query patterns, and the user's company lists. Ignored companies
+are never fetched. Only go to supplement boards when the primary sweep yields too few candidates (or
+the user asks for a wider search).
 
 Every candidate passes, in order:
 
