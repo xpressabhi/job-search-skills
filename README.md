@@ -14,12 +14,13 @@ No server, no account, no external apply service. Your data never leaves `~/.job
 ## Install
 
 ```bash
-npx skills add xpressabhi/job-search-skills -s job-finder -s apply-to-jobs -a '*' -g
+npx skills add xpressabhi/job-search-skills -s job-finder -s apply-to-jobs -a '*' -g -y
 ```
 
 `-g` installs for your user (all projects), `-a '*'` targets every agent it can detect (Claude Code,
-Codex, OpenCode, Cursor, …). Drop `-a '*'` to choose interactively. `apply-to-jobs` expects
-`job-finder` — install both.
+Codex, OpenCode, Cursor, …), `-y` skips the symlink/copy prompt (symlink is the recommended default —
+one canonical copy that `npx skills update` refreshes; add `--copy` instead if symlinks aren't your
+thing). `apply-to-jobs` expects `job-finder` — install both.
 
 <details>
 <summary>Manual install (no npx)</summary>
