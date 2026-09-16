@@ -145,14 +145,21 @@
     .hero { gap: 26px; padding: 44px 0 52px; }
     h1 { font-size: clamp(1.8rem, 8.5vw, 2.1rem); }
     .sub { margin-bottom: 22px; }
-    .install pre { padding: 12px; font-size: .8rem; }
+    .install { max-width: none; }
+    .install pre { white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; padding: 12px; font-size: .8rem; line-height: 1.75; }
+    .tree { overflow-x: visible; padding: 14px 16px; font-size: .8rem; }
+    .tree > div { white-space: normal; }
     section { padding: 44px 0; }
-    .lede { margin-bottom: 26px; }
+    .lede { margin-bottom: 26px; font-size: .95rem; }
     .skill { grid-template-columns: 26px 1fr; gap: 16px; padding: 22px 0; }
+    .skill li { font-size: .9rem; }
+    .session { font-size: .88rem; line-height: 1.8; }
+    .session .cap { font-size: .76rem; }
+    .report { font-size: .9rem; }
     .steps { gap: 24px; }
     .local { gap: 24px; }
     .free .wrap { padding-top: 26px; padding-bottom: 26px; }
-    footer { padding: 28px 0 44px; }
+    footer { padding: 28px 0 44px; gap: 12px 16px; }
   }
   @media (pointer: coarse) {
     .copy { padding: 7px 13px; }
