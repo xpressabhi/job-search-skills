@@ -34,7 +34,7 @@
     }
   }
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body {
     margin: 0;
     font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, ui-sans-serif, sans-serif;
@@ -66,7 +66,8 @@
 
   /* hero */
   .hero { display: grid; grid-template-columns: 1.15fr .85fr; gap: 56px; align-items: center; padding: 72px 0 88px; }
-  h1 { font-size: clamp(2rem, 4.6vw, 3rem); line-height: 1.08; letter-spacing: -.03em; margin: 0 0 16px; max-width: 14ch; }
+  .hero > *, .local > * { min-width: 0; }
+  h1 { font-size: clamp(2rem, 4.6vw, 3rem); line-height: 1.08; letter-spacing: -.03em; margin: 0 0 16px; max-width: 14ch; text-wrap: balance; }
   .sub { color: var(--muted); margin: 0 0 28px; max-width: 46ch; }
   .run { display: inline-flex; align-items: center; gap: 8px; font-size: .82rem; color: var(--muted); margin-bottom: 18px; }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
@@ -113,7 +114,8 @@
 
   /* local */
   .local { display: grid; grid-template-columns: 1fr 1.1fr; gap: 48px; align-items: start; }
-  .tree { background: var(--code); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; font-size: .84rem; line-height: 1.9; }
+  .tree { background: var(--code); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; font-size: .84rem; line-height: 1.9; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tree > div { white-space: nowrap; }
   .tree .d { color: var(--accent); }
   .tree .c { color: var(--muted); }
   .report { margin-top: 12px; font-size: .84rem; line-height: 2; color: var(--muted); }
@@ -136,6 +138,24 @@
     .steps { grid-template-columns: 1fr; gap: 28px; }
     .local { grid-template-columns: 1fr; gap: 28px; }
     section { padding: 52px 0; }
+  }
+  @media (max-width: 520px) {
+    .wrap { padding: 0 18px; }
+    nav .links { gap: 12px; font-size: .82rem; }
+    .hero { gap: 26px; padding: 44px 0 52px; }
+    h1 { font-size: clamp(1.8rem, 8.5vw, 2.1rem); }
+    .sub { margin-bottom: 22px; }
+    .install pre { padding: 12px; font-size: .8rem; }
+    section { padding: 44px 0; }
+    .lede { margin-bottom: 26px; }
+    .skill { grid-template-columns: 26px 1fr; gap: 16px; padding: 22px 0; }
+    .steps { gap: 24px; }
+    .local { gap: 24px; }
+    .free .wrap { padding-top: 26px; padding-bottom: 26px; }
+    footer { padding: 28px 0 44px; }
+  }
+  @media (pointer: coarse) {
+    .copy { padding: 7px 13px; }
   }
   @media (prefers-reduced-motion: no-preference) {
     .rise { animation: rise .65s cubic-bezier(.16, 1, .3, 1) both; }
