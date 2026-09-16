@@ -1,6 +1,6 @@
 ---
 name: apply-to-jobs
-description: Applies to jobs from the user's job-finder tracker by autofilling and submitting ATS application forms in their own visible Chrome — no external apply service. Detects the ATS portal (Ashby/Greenhouse/Lever/Workable/iCIMS/Workday/SmartRecruiters/Microsoft/generic), follows that portal's reference, fills strictly from the user's profile + stored answers + live CV, auto-submits clean forms, and pauses for the user (HITL) only on captcha/consent/login/knockout blockers. Supports single roles and batch ("apply to all interested"). Use when the user says "apply", "apply to this job", "autofill", "submit application", or "apply to all interested".
+description: Applies to jobs from the user's job-finder tracker by autofilling and submitting ATS application forms in their own visible Chrome — no external apply service. Detects the ATS portal (Ashby/Greenhouse/Lever/Workable/iCIMS/Workday/SmartRecruiters/Microsoft/LinkedIn incl. Easy Apply/generic), follows that portal's reference, fills strictly from the user's profile + stored answers + live CV, auto-submits clean forms, checks pages + tracker for prior applications, and pauses for the user (HITL) only on captcha/consent/login/knockout blockers. Supports single roles and batch ("apply to all interested"). Use when the user says "apply", "apply to this job", "autofill", "submit application", or "apply to all interested".
 ---
 
 # Apply to a job (self-owned autofill + submit)
@@ -35,12 +35,16 @@ Fetch the work item: `tracker.mjs queue get <queueId>` → queue row + full role
 1. `node scripts/chrome.mjs launch` (once per session), then `open <url>` — one tab per job in batch.
 2. Detect the portal from the URL: `ashbyhq`→ashby · `greenhouse.io`→greenhouse · `lever.co`→lever ·
    `workable.com`→workable · `icims.com`→icims · `myworkdayjobs`→workday · `smartrecruiters`→smartrecruiters ·
-   `apply.careers.microsoft.com`→microsoft · `linkedin.com/jobs`→generic-but-walled · else generic.
+   `apply.careers.microsoft.com`→microsoft · `linkedin.com/jobs`→linkedin · else generic.
 3. Read `portals/_common.md`, then `portals/<portal>.md` — follow it exactly.
 4. Verify the visible H1/title/company matches the tracker role. Mismatch (redirect/expired) →
    `awaiting_user "posting mismatch (expected … got …)"` and stop. Accept consent/GDPR walls.
 
-## Step 2 — Knock-out pre-scan
+## Step 2 — Duplicate guard + knock-out pre-scan
+
+Duplicate guard first (`_common.md` § Duplicate guard): page says "Applied" or the tracker already
+shows `applied`/pipeline → skip, never re-apply — the same role reached via LinkedIn and the company
+ATS is one application.
 
 Cross-check form questions against the profile: years, degree, work authorization, location, salary
 (fill only when the range covers the profile band; else blank + flag). **If a hard requirement clearly
@@ -93,5 +97,6 @@ Optional per-step progress: `queue step <queueId> "<step>"` ("opening form", "fi
 ## Final message
 
 `APPLIED` (clean submit) · `AWAITING_USER` (blocker set; explain in one line) ·
-`MISMATCH`/`KNOCKOUT`/`ERROR` (stopped; explain in one line). In batch mode, report the tally:
-applied N, awaiting user on <company> (blocker), remaining M queued.
+`SKIPPED` (duplicate guard — already applied) · `MISMATCH`/`KNOCKOUT`/`ERROR` (stopped; explain in
+one line). In batch mode, report the tally: applied N, skipped as duplicate M, awaiting user on
+<company> (blocker), remaining K queued.

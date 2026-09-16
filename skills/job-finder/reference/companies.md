@@ -133,7 +133,8 @@ positive signal, not a guarantee — the posting's own location list still decid
 - Some Workday roots bot-block crawlers but work in a real browser (Uber, Qualcomm, ServiceNow, PayPal,
   Coinbase, MongoDB, Box, Dropbox, Broadcom) — `company verify` reports these as `blocked` (5xx/406);
   that is expected, use a browser when a fetch fails.
-- Universal fallback for any company: `linkedin.com/company/<slug>/jobs` (catches roles posted only there).
+- Universal fallback for any company: `linkedin.com/company/<slug>/jobs` (catches roles posted only
+  there; sign in once in the dedicated Chrome profile via the apply skill's `chrome.mjs launch`).
 - M&A watch (portals move; don't chase dead boards): Replicate→Cloudflare · Splunk→Cisco ·
   HashiCorp + Confluent→IBM. When a board dies, find the parent's portal.
 - Portal health is volatile: if an Ashby/Greenhouse API 404s, load the careers page in a browser once

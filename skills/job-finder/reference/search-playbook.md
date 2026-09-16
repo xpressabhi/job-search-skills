@@ -32,7 +32,14 @@ to the board URL when an endpoint is missing or blocked.
 - **Own boards (Google/MS/Amazon/Stripe/Netflix…):** site search box; filter country + remote.
 - **Other ATS (BambooHR `<co>.bamboohr.com/careers`, Recruitee `<co>.recruitee.com`, Teamtailor,
   Personio):** no query params — scan the board root; the company's `/careers` page links its ATS.
-- **LinkedIn fallback:** `linkedin.com/company/<slug>/jobs` catches roles posted only to LinkedIn.
+- **LinkedIn:** sign in once in the dedicated Chrome profile (via `apply-to-jobs`' `chrome.mjs
+  launch`) — logged-out search is a walled stub. Search
+  `linkedin.com/jobs/search/?keywords=…&location=…` with `f_WT=2` (remote) / `1` (on-site) /
+  `3` (hybrid), `f_TPR=r604800` (past week), sorted by date; company pages:
+  `linkedin.com/company/<slug>/jobs` catches roles posted only there. Record `--source linkedin`.
+  **Resolve the original posting before reporting:** the Apply control shows whether it links out
+  (external ATS — report that URL) or is Easy Apply-only (report the LinkedIn URL, label `easy
+  apply`). Dedupe on company+title keeps the LinkedIn and ATS copies of one role from surfacing twice.
 - **ATS site-query cross-check** (after the sweep): restrict to known slugs —
   `site:job-boards.greenhouse.io OR site:jobs.ashbyhq.com OR site:jobs.lever.co ("Staff Software Engineer" OR "Principal Software Engineer") (<country> OR <city> OR Remote)`.
   Workday hosts index poorly — sweep them directly instead.
@@ -43,7 +50,7 @@ to the board URL when an endpoint is missing or blocked.
 Himalayas (himalayas.app/jobs) · RemoteOK · WeWorkRemotely · Remotive · Wellfound · JustRemote ·
 Working Nomads · ai-jobs.net · YC (ycombinator.com/jobs — the location tag, e.g. "Remote (IN)", is
 the eligibility signal, not marketing copy) · HN "Who is hiring?" monthly thread ·
-LinkedIn with the remote filter (`f_WT=2`) · WelcomeToTheJungle (salaries shown).
+LinkedIn (signed in — §2) with the remote filter (`f_WT=2`) · WelcomeToTheJungle (salaries shown).
 Aggregator labels lie — always re-verify eligibility on the company's own posting.
 
 Middleman platforms reselling engineers (Turing/Crossover/Uplers-style) and "apply once, we match
@@ -54,8 +61,9 @@ you" bodyshops are not in scope: pay, IP, and work quality rarely clear the bar.
 
 Use the user's city/metro from the profile:
 
-- **LinkedIn Jobs:** city geoId + `f_WT=1` (on-site) | `f_WT=3` (hybrid) | `f_WT=2` (remote),
-  separate runs. Search the target titles; use the salary filter where available.
+- **LinkedIn Jobs** (signed in — §2): city geoId + `f_WT=1` (on-site) | `f_WT=3` (hybrid) |
+  `f_WT=2` (remote), separate runs; add `f_TPR=r604800` (past week) and sort by date. Search the
+  target titles; use the salary filter where available.
 - **Naukri / Cutshort / Instahyre / iimjobs** (India) · **Otta** (UK/US/EU) · **Jobs.ch** (CH) ·
   **StepStone/Xing** (DACH) · **Seek** (AU/NZ) — the regional board splits by market; use what the
   profile's country implies.

@@ -6,8 +6,9 @@ Two agent skills that run your entire job search — and keep everything on your
   boards, filters roles by what you can actually get (remote eligibility, timezone, comp floor,
   exclusions), ranks by CV fit, and remembers every role so nothing is ever surfaced twice.
 - **`apply-to-jobs`** — drives your own Chrome to autofill and submit ATS applications (Ashby,
-  Greenhouse, Lever, Workable, iCIMS, Workday, SmartRecruiters, Microsoft, company portals), pausing
-  for you only on captchas, logins, consent walls, or knockout mismatches.
+  Greenhouse, Lever, Workable, iCIMS, Workday, SmartRecruiters, Microsoft, LinkedIn including Easy
+  Apply, company portals), pausing for you only on captchas, logins, consent walls, or knockout
+  mismatches — and checking for prior applications first so nothing is ever submitted twice.
 
 No server, no account, no external apply service. Your data never leaves `~/.job-search/`.
 

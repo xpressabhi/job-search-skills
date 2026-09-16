@@ -59,6 +59,16 @@ Drive the user's visible Chrome via this skill's CDP helper (do NOT use `node_re
   Node 22+ is required for the helper; older Node → use the MCP tools and say so.
 - Prefer one browser window, one tab per job in batch runs.
 
+## Duplicate guard (before filling anything)
+
+1. **Page state:** if the posting shows "Applied" (LinkedIn badge, Greenhouse "you already applied",
+   any "already applied" banner) → stop and record:
+   `queue set <queueId> skipped "already applied <date>"`.
+2. **Tracker:** `tracker.mjs role "<company>:<title>"` — if status is `applied` or further in the
+   pipeline (`oa`/`phone`/`onsite`/`offer`/`accepted`), stop the same way. A role reached via a
+   different URL (LinkedIn vs the company's own ATS) is the **same application** — never apply twice.
+   `tracker.mjs queue add` also warns on the command line when the role is already applied.
+
 ## Verification before submit
 
 1. Re-read every filled field (fill → snap → check against the profile).

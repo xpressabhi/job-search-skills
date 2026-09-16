@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HOME = process.env.JOB_SEARCH_HOME
@@ -30,6 +30,7 @@ const STATUSES = [
   'rejected', 'withdrew', 'not_interested', 'expired',
 ];
 const ACTIVE_STATUSES = ['interested', 'applied', 'oa', 'phone', 'onsite', 'offer'];
+const APPLIED_STATUSES = ['applied', 'oa', 'phone', 'onsite', 'offer', 'accepted'];
 const QUEUE_STATUSES = ['queued', 'filling', 'awaiting_user', 'applied', 'skipped', 'failed', 'aborted'];
 const OPEN_QUEUE_STATUSES = ['queued', 'filling', 'awaiting_user'];
 
@@ -926,6 +927,9 @@ const commands = {
     const at = nowIso();
     if (sub === 'add') {
       const role = findRole(data, pos.slice(1).join(' '), flags);
+      if (APPLIED_STATUSES.includes(role.status)) {
+        console.error(`warn: role ${role.id} (${role.company} — ${role.title}) is already "${role.status}" — applying again would duplicate`);
+      }
       const row = { id: nextId(data.queue), role_id: role.id, portal: flags.portal || null, status: 'queued', message: '', step: '', created_at: at, updated_at: at };
       data.queue.push(row);
       save(data);
@@ -1226,6 +1230,10 @@ const commands = {
       run(['queue', 'complete', String(detail.role.id), match[1], 'submitted']);
       const stats = run(['stats']);
       if (!/1\s+applied/.test(stats)) throw new Error(stats);
+    });
+    check('queue add warns on already-applied role', () => {
+      const out = spawnSync(process.execPath, [self, 'queue', 'add', 'Globex'], { encoding: 'utf8', env });
+      if (!String(out.stderr).includes('already')) throw new Error(`no warning: ${out.stderr}`);
     });
     check('profile gate + import seeds answers', () => {
       runFail(['profile', 'path'], 1);
