@@ -174,26 +174,59 @@ function fitComposite(coverage, stack, seniority, domain) {
        + 0.20 * (seniority / 3) + 0.15 * (domain / 3);
 }
 
-// Guardrails: track fails and near-zero coverage drop the role; level
-// mismatches and thin coverage cap the label at partial (never good/strong).
-function applyFitGates(composite, label, gates) {
+// Level + stack strictness (the user's top rejection cause).
+// Below/above-level and named-requirement-missing roles DROP by default:
+// when level doesn't match, comp doesn't match, and the application dies.
+// `lenient: true` (rank --lenient) restores the old soft caps.
+const MIN_COVERAGE_DROP = 1.5;   // a named core requirement missing → drop
+const MIN_COVERAGE_FULL = 2.25;  // cover-most bar for a clean good/strong
+
+function applyFitGates(composite, label, gates, { lenient = false } = {}) {
   const reasons = [];
   if (gates.track_ok !== undefined && gates.track_ok <= NO) {
     return { verdict: 'ineligible', label: 'weak', composite: 0, reasons: [`track mismatch (${gates.track_ok.toFixed(2)})`] };
   }
-  if (gates.coverage !== undefined && gates.coverage < 1.0) {
-    return { verdict: 'ineligible', label: 'weak', composite: 0, reasons: [`zero requirement coverage (${gates.coverage.toFixed(2)})`] };
+  // Hard level gate: below/above the candidate band both kill the application.
+  if (gates.level_band === 'below' || gates.level_band === 'above') {
+    if (!lenient) {
+      return { verdict: 'ineligible', label: 'weak', composite: 0,
+        reasons: [`level ${gates.level_band} candidate band (comp won't match)`] };
+    }
+  }
+  const dropCoverage = lenient ? 1.0 : MIN_COVERAGE_DROP;
+  if (gates.coverage !== undefined && gates.coverage < dropCoverage) {
+    return { verdict: 'ineligible', label: 'weak', composite: 0,
+      reasons: [`requirement coverage too low (${gates.coverage.toFixed(2)} < ${dropCoverage})`] };
   }
   let capped = label;
-  if (gates.level_ok !== undefined && gates.level_ok <= NO) {
+  if (gates.level_band === 'below' || gates.level_band === 'above') {
+    capped = 'partial';
+    reasons.push(`level ${gates.level_band} candidate band`);
+  } else if (gates.level_band === 'unclear') {
+    capped = capped === 'strong' ? 'good' : capped;
+    reasons.push('level unclear in posting');
+  } else if (gates.level_ok !== undefined && gates.level_ok <= NO) {
     capped = 'partial';
     reasons.push(`level mismatch (${gates.level_ok.toFixed(2)})`);
   }
-  if (gates.coverage !== undefined && gates.coverage < 2.0 && (capped === 'strong' || capped === 'good')) {
+  const fullCoverage = lenient ? 2.0 : MIN_COVERAGE_FULL;
+  if (gates.coverage !== undefined && gates.coverage < fullCoverage && (capped === 'strong' || capped === 'good')) {
     capped = 'partial';
     reasons.push(`thin requirement coverage (${gates.coverage.toFixed(2)})`);
   }
   return { verdict: null, label: capped, composite, reasons };
+}
+
+// Code backstop for the level band: titles that are unmistakably a lower rung
+// (associate, engineer II/III, junior, graduate) drop even if the model reads
+// the years as "senior". Staff/principal/lead/manager titles are exempt.
+const BELOW_TITLE = /\b(associate|junior|jr\.?|graduate|intern|trainee)\b|\b(engineer|developer|swe|sde|scientist)\s*(i{1,3}|1|2|3)\b|\bmid[\s-]?level\b/i;
+const ABOVE_EXEMPT = /staff|principal|lead|head|director|manager|architect/i;
+function levelBackstop(title, band) {
+  if (band === 'above' || band === 'unclear' || !band) return band;
+  const t = String(title || '');
+  if (BELOW_TITLE.test(t) && !ABOVE_EXEMPT.test(t)) return 'below';
+  return band;
 }
 
 // Deterministic onsite/hybrid gate (code, not Jev): an office-bound role in a
@@ -217,6 +250,19 @@ function onsiteGate(candidate, role) {
   const foreign = METROS.filter((m) => loc.includes(m) && !home.some((c) => c.includes(m) || m.includes(c)));
   if (!foreign.length) return null;
   return `office-bound in ${foreign[0]} — outside candidate cities, relocation rejected`;
+}
+
+// Deterministic relocation answer when the data already decides it:
+// candidate accepts relocation, role is in a candidate city, or fully remote.
+// Returns null when the posting must be read to decide (Jev handles it).
+function fastRelocation(candidate, role) {
+  if (candidate.relocation_ok) return 1;
+  const mode = String(role.mode || '').toLowerCase();
+  if (/remote/.test(mode) && !/hybrid|on-?site/.test(mode)) return 1;
+  const loc = normCity(role.location || '');
+  const home = (candidate.cities || []).map(normCity).filter(Boolean);
+  if (loc && home.some((c) => loc.includes(c))) return 1;
+  return null;
 }
 
 // Low-yield companies from the tracker's own history: 3+ applications,
@@ -278,10 +324,10 @@ const Q = {
     },
     relocation_ok: {
       type: 'noul',
-      instructions: `Candidate relocation_ok is \`candidate.relocation_ok\`. Does \`posting.posting_text\` force a relocation the candidate rejects? Fully remote roles always pass. If the posting says nothing about relocation, answer yes (near 1): silence means no forced relocation.`,
+      instructions: `Candidate relocation_ok is \`candidate.relocation_ok\` and lives in \`candidate.cities\`. Does \`posting.posting_text\` force a relocation the candidate rejects? A role located in a candidate city, a fully remote role, or a posting that is silent about relocation all pass. Only an explicit requirement to move to (or work from) a place outside \`candidate.cities\` when relocation_ok is false fails.`,
       criteria: {
-        true: 'Remote, no relocation mentioned, no forced relocation, or candidate accepts relocation',
-        false: '"Remote now, relocate later" or relocation-required while the candidate rejects it',
+        true: 'In a candidate city, fully remote, silent on relocation, or candidate accepts relocation',
+        false: 'Explicitly requires moving to or being located outside the candidate cities, and relocation_ok is false',
       },
     },
   }),
@@ -336,10 +382,35 @@ const Q = {
     },
     level_ok: {
       type: 'noul',
-      instructions: 'Is the posting level within the candidate band in `candidate` (years_experience, seniority)? More than about one level above (unreachable stretch) or below (demotion, e.g. mid-level/III posting for a Staff+ candidate) fails.',
+      instructions: 'Is the posting level within the candidate band in `candidate` (years_experience, seniority)? A mid-level, associate, or L4/III-titled role is below; a director/VP/head-of or a role demanding far more years than the candidate has is above. Both fail. About one step either way is the tolerance.',
       criteria: {
         true: 'Within about one level of the candidate band',
         false: 'Two or more levels above or below the candidate band',
+      },
+    },
+    level_match: {
+      type: 'choice',
+      instructions: {
+        question: 'What is the posted seniority level of `posting` relative to the candidate band in `candidate` (years_experience, seniority, titles)?',
+        focus: 'Judge the level the posting hires at, from its title and required years/responsibilities. If the posted title or stated band overlaps ANY entry in `candidate.seniority` (e.g. Senior, Staff, Principal, Lead), answer "at" — even when the posting asks for fewer years than the candidate has. Fewer stated years is not "below"; only an explicitly lower rung is.',
+      },
+      criteria: {
+        below: {
+          what: 'Explicitly a lower rung: mid-level, associate, engineer II/III, junior, or a title rank clearly below every entry in `candidate.seniority`. Responsibilities scoped to executing well-defined tasks without ownership or design scope.',
+          examples: ['Software Engineer II', 'Senior Associate', 'Junior/Mid-Level Engineer', 'Software Engineer III'],
+        },
+        at: {
+          what: 'Same band: the title or stated level overlaps `candidate.seniority` (Senior/Staff/Principal/Lead IC roles), or the posting is level-flexible / a generic "Software Engineer" with 5+ years and ownership scope.',
+          not_for: 'Do not choose "at" for manager/director roles when the candidate is an IC',
+          examples: ['Senior Software Engineer', 'Staff Software Engineer', 'Principal Engineer', 'Forward Deployed Engineer with customer ownership'],
+        },
+        above: {
+          what: 'Clearly above the candidate band: director, VP, head-of, or explicit requirements far beyond the candidate (managing managers, 20+ years, or a named larger scope the candidate has not held).',
+          examples: ['Director of Engineering', 'VP Engineering', 'Head of Platform'],
+        },
+        unclear: {
+          what: 'The posting states no reliable level or years signal at all.',
+        },
       },
     },
   }),
@@ -480,6 +551,8 @@ async function cmdEligibility(opts) {
     },
   };
   const data = await systemOne(state, Q.eligibility(candidate), { model: opts['--model'] });
+  const reloc = fastRelocation(candidate, posting);
+  if (reloc !== null && data.answers.relocation_ok) data.answers.relocation_ok.noul = reloc;
   const { verdict, reasons } = eligibilityVerdict(data.answers);
   return { verdict, reasons, nouls: Object.fromEntries(
     Object.entries(data.answers).map(([k, v]) => [k, v.noul])), model: data.model };
@@ -504,12 +577,15 @@ async function cmdFit(opts) {
   const a = data.answers;
   const composite = fitComposite(a.requirement_coverage.score, a.stack_match.score,
     a.seniority_match.score, a.domain_match.score);
-  const gates = { track_ok: a.track_ok.noul, level_ok: a.level_ok.noul, coverage: a.requirement_coverage.score };
-  const gated = applyFitGates(composite, fitLabel(composite), gates);
+  const gates = { track_ok: a.track_ok.noul, level_ok: a.level_ok.noul,
+    level_band: levelBackstop(posting.title, a.level_match?.choice),
+    coverage: a.requirement_coverage.score };
+  const gated = applyFitGates(composite, fitLabel(composite), gates, { lenient: Boolean(opts['--lenient']) });
   return {
     scores: { requirement_coverage: a.requirement_coverage.score,
       seniority_match: a.seniority_match.score, stack_match: a.stack_match.score, domain_match: a.domain_match.score },
-    gates: { track_ok: gates.track_ok, level_ok: gates.level_ok },
+    gates: { track_ok: gates.track_ok, level_ok: gates.level_ok, level_band: gates.level_band,
+      coverage: gates.coverage },
     confidences: Object.fromEntries(Object.entries(a).map(([k, v]) => [k, v.confidence])),
     composite: Math.round(gated.composite * 1000) / 1000, label: gated.label,
     gate_reasons: gated.reasons, model: data.model,
@@ -549,12 +625,17 @@ async function cmdRank(opts) {
     };
     try {
       const data = await systemOne(state, { ...eligQ, ...fitQ }, { model: opts['--model'] });
+      const reloc = fastRelocation(candidate, r);
+      if (reloc !== null && data.answers.relocation_ok) data.answers.relocation_ok.noul = reloc;
       const a = data.answers;
       const ev = eligibilityVerdict(a);
       const composite = fitComposite(a.requirement_coverage.score, a.stack_match.score,
         a.seniority_match.score, a.domain_match.score);
       const gated = applyFitGates(composite, fitLabel(composite),
-        { track_ok: a.track_ok.noul, level_ok: a.level_ok.noul, coverage: a.requirement_coverage.score });
+        { track_ok: a.track_ok.noul, level_ok: a.level_ok.noul,
+          level_band: levelBackstop(r.title, a.level_match?.choice),
+          coverage: a.requirement_coverage.score },
+        { lenient: Boolean(opts['--lenient']) });
       const reasons = [...ev.reasons, ...gated.reasons];
       let verdict = gated.verdict || ev.verdict;
       let finalComposite = gated.composite;
@@ -566,7 +647,9 @@ async function cmdRank(opts) {
       if (verdict === 'eligible' && gated.label !== 'strong' && gated.label !== 'good'
         && a.requirement_coverage.score < 2.0) verdict = 'unverified';
       return { id: r.id ?? null, url: r.url || '', company: r.company || '', title: r.title || '',
-        verdict, reasons, composite: Math.round(finalComposite * 1000) / 1000, label: gated.label };
+        verdict, reasons, composite: Math.round(finalComposite * 1000) / 1000, label: gated.label,
+        level: levelBackstop(r.title, a.level_match?.choice) ?? null,
+        coverage: Math.round((a.requirement_coverage?.score ?? 0) * 100) / 100 };
     } catch (err) {
       return { id: r.id ?? null, url: r.url || '', company: r.company || '', title: r.title || '',
         verdict: 'unverified', reasons: [`jev error: ${err.message || err}`], composite: 0, label: 'weak' };
@@ -682,12 +765,28 @@ function cmdSelftest() {
     fitComposite(0, 3, 3, 3) < 0.62);
   ok('track mismatch drops the role',
     applyFitGates(0.9, 'strong', { track_ok: 0.1, level_ok: 0.9, coverage: 2.5 }).verdict === 'ineligible');
-  ok('zero coverage drops the role',
-    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, coverage: 0.5 }).verdict === 'ineligible');
-  ok('level mismatch caps at partial',
-    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.1, coverage: 2.5 }).label === 'partial');
+  ok('coverage below drop bar kills the role',
+    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, coverage: 1.2 }).verdict === 'ineligible');
+  ok('level below candidate band drops by default',
+    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, level_band: 'below', coverage: 2.5 }).verdict === 'ineligible');
+  ok('level above candidate band drops by default',
+    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, level_band: 'above', coverage: 2.5 }).verdict === 'ineligible');
+  ok('level below survives with --lenient (capped partial)',
+    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.2, level_band: 'below', coverage: 2.5 }, { lenient: true }).label === 'partial');
+  ok('unclear level caps strong to good',
+    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, level_band: 'unclear', coverage: 2.5 }).label === 'good');
   ok('thin coverage caps strong at partial',
-    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, coverage: 1.5 }).label === 'partial');
+    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, level_band: 'at', coverage: 1.8 }).label === 'partial');
+  ok('at-level + full coverage stays strong',
+    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, level_band: 'at', coverage: 2.6 }).label === 'strong');
+  ok('level backstop catches engineer III',
+    levelBackstop('Software Engineer III, Full Stack', 'at') === 'below');
+  ok('level backstop catches senior associate',
+    levelBackstop('Software Engineering Senior Associate', 'at') === 'below');
+  ok('level backstop exempts staff/principal',
+    levelBackstop('Staff Software Engineer', 'at') === 'at' && levelBackstop('Associate Principal Engineer', 'at') === 'at');
+  ok('level backstop leaves above/unclear alone',
+    levelBackstop('Software Engineer II', 'above') === 'above' && levelBackstop('Software Engineer II', 'unclear') === 'unclear');
   const hyd = { cities: ['Hyderabad'], relocation_ok: false };
   ok('onsite gate drops Delhi onsite, no relocation',
     typeof onsiteGate(hyd, { mode: 'on-site', location: 'Delhi' }) === 'string');
@@ -700,6 +799,15 @@ function cmdSelftest() {
   ok('onsite gate passes remote anywhere', onsiteGate(hyd, { mode: 'remote', location: 'Delhi' }) === null);
   ok('onsite gate passes when relocation accepted',
     onsiteGate({ cities: ['Hyderabad'], relocation_ok: true }, { mode: 'on-site', location: 'Delhi' }) === null);
+  const hydCand = { cities: ['Hyderabad'], relocation_ok: false };
+  ok('fastRelocation passes same-city hybrid',
+    fastRelocation(hydCand, { mode: 'hybrid', location: 'Hyderabad, Telangana, India' }) === 1);
+  ok('fastRelocation passes remote',
+    fastRelocation(hydCand, { mode: 'remote', location: '' }) === 1);
+  ok('fastRelocation defers on foreign city',
+    fastRelocation(hydCand, { mode: 'on-site', location: 'Pune, India' }) === null);
+  ok('fastRelocation defers when silent',
+    fastRelocation(hydCand, { mode: '', location: '' }) === null);
   // Question shapes.
   const allQ = { ...Q.eligibility({}), ...Q.fit(), ...Q.liveness(), ...Q.redflags(), ...Q.knockout(), ...Q.verifySubmit(), ...Q.sameRole(), ...Q.appliedGuard() };
   ok('all questions have type+instructions', Object.values(allQ).every((q) => q.type && q.instructions));

@@ -66,9 +66,12 @@ drops never spend a Jev call):
    (remote region + timezone + payroll + auth + relocation, playbook §9). `ineligible` =
    skip; `unverified` = keep, ranked below `eligible`.
 5. **Comp floor** from the profile — below floor = skip (numeric check in code, never Jev).
-6. **CV-fit** — `jev.mjs fit` per role, or `jev.mjs rank` over the whole shortlist (§3).
-   Track mismatches and zero-coverage roles drop here; level mismatches and thin coverage
-   cap at `partial fit` with the gap named.
+6. **Level + stack match (strict by default)** — `jev.mjs rank` over the whole shortlist
+   (§3). Level mismatch (below or above the candidate band) and missing named requirements
+   (`requirement_coverage` < 1.5) drop the role — when level doesn't match, comp and
+   interviews don't either. `--lenient` softens to partial fits for wide-net runs.
+   Only level+stack matches (`good`/`strong`) belong in the report's top; `partial` means
+   "possible but not recommended" and goes in a flagged footer line, never dressed up.
 
 Record the posting's own publish date as `--posted YYYY-MM-DD` (empty if not shown) and the exact
 canonical ATS URL — both are reused verbatim in the report.
@@ -82,11 +85,12 @@ runs sweep it automatically.
 `jev.mjs rank --profile <profile.json> --roles <shortlist.json>` scores eligibility + fit
 in one fan-out call per role and returns verdict-then-composite order (playbook §11:
 eligibility confirmed > published salary > CV-fit > company quality > timezone/commute
-fit — salary/company-currency math stays in code). Only `interested` roles are ever
-re-shown, so the report is the user's one shot at each role — rank honestly, and label
-`partial fit` / `(stretch: <gap>)` / `(stale, posted …)` rather than dressing up a bad
-match. Red-flag hits (`jev.mjs redflags`) override the order entirely, however good the
-math looks.
+fit — salary/company-currency math stays in code). **Level and stack must match:**
+below/above-level roles and roles missing named requirements are dropped, not softened.
+Only `interested` roles are ever re-shown, so the report is the user's one shot at each
+role — rank honestly. `good`/`strong` level+stack matches fill the table; `partial` roles
+go in one flagged footer line ("possible but not recommended") or nowhere. Red-flag hits
+(`jev.mjs redflags`) override the order entirely, however good the math looks.
 
 ## Step 4 — Deliver a ranked report
 

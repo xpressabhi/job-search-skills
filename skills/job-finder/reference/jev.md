@@ -19,7 +19,7 @@ inline JSON/text. Output is JSON on stdout.
 |---|---|---|
 | `eligibility --profile P --posting J` | remote/timezone/payroll/auth/relocation → `eligible`/`unverified`/`ineligible` + reasons (deterministic onsite gate first, no call when it fires) | finder §2.4, playbook §9 |
 | `fit --cv C --posting J` | coverage/stack/seniority/domain scores + composite 0..1 + capped `strong`/`good`/`partial`/`weak` | finder §2.6, §3 |
-| `rank --profile P --roles R.json [--limit N] [--no-history]` | deterministic pre-pass (free drops, Jev call skipped) → one fan-out call per survivor (eligibility + fit together) → history penalty → sorted | finder §3 |
+| `rank --profile P --roles R.json [--limit N] [--no-history] [--lenient]` | deterministic pre-pass (free drops, Jev call skipped) → one fan-out call per survivor (eligibility + fit together) → history penalty → sorted | finder §3 |
 | `liveness --page T --role J` | `live`/`dead`/`suspicious`/`unverified` | finder §2.3, playbook §9a |
 | `redflags --posting J` | `fee_or_kyc_scam`, `surveillance_terms`, `bodyshop_repost` | playbook §10 |
 | `same-role --a A --b B` | LinkedIn-vs-ATS duplicate check | finder §2.1, apply duplicate guard |
@@ -50,11 +50,22 @@ role?" — broad questions hide judgments; atomic ones compose in code.
   must-haves can never outrank a covered partial fit.
   Labels: ≥0.75 strong · ≥0.55 good · ≥0.35 partial · else weak.
 - Hard gates (fail = `ineligible`, role dropped): `track_ok` ≤ 0.3 (management/
-  strategy/sales track vs IC candidate or vice versa), `requirement_coverage`
-  < 1.0 (zero evidenced must-haves), deterministic onsite gate (office-bound
-  role in a non-candidate metro, relocation rejected — decided in code, no call).
-- Soft caps (label capped at `partial`, never `good`/`strong`): `level_ok` ≤ 0.3
-  (±2-level mismatch either direction), coverage < 2.0.
+  strategy/sales track vs IC candidate or vice versa); **level band below/above the
+  candidate** (model Choice `level_match` + a code backstop that catches obvious
+  lower rungs: associate, engineer II/III, junior, graduate — staff/principal/lead
+  titles exempt); `requirement_coverage` < 1.5 (a named core requirement missing);
+  deterministic onsite gate (office-bound role in a non-candidate metro,
+  relocation rejected — decided in code, no call).
+- Strict by default: level and stack mismatches are dropped, not surfaced — when
+  the level doesn't match, comp and interviews don't either. `--lenient` restores
+  soft caps (level ±2 → `partial`, coverage < 1.0 → drop) for wide-net runs.
+- Soft caps (label capped at `partial`, never `good`/`strong`): `level_match` =
+  `unclear` (strong→good), coverage < 2.25 (cover-most bar); with `--lenient`,
+  level mismatches also cap at partial.
+- Level semantics: `at` means the posting band overlaps `candidate.seniority`
+  (Senior/Staff/Principal/Lead IC). Fewer stated years is NOT "below" — only an
+  explicitly lower rung is. A `partial` label means "possible but not recommended";
+  only `good`/`strong` level+stack matches belong in the top of a report.
 - `rank` applies a −0.15 history penalty for low-yield companies (3+ applied,
   none past `applied` in the tracker) and flags them; `--no-history` opts out.
 - `knockout:true` (any hit ≥ 0.7) → do NOT fill/submit → `awaiting_user`.
