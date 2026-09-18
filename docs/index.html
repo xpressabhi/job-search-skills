@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>job-search-skills — your job search, as two agent skills</title>
-<meta name="description" content="Find roles you can actually get, then apply through your own Chrome — with a local tracker that remembers everything. MIT, no server, no account.">
+<meta name="description" content="Find roles you can actually get — level and stack matched by Jev, applied through your own Chrome, with a local tracker that remembers everything. MIT, no server, no account.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b7f5c'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23fdfdfc'/%3E%3C/svg%3E">
 <style>
   :root {
@@ -192,7 +192,7 @@
     <div>
       <p class="run rise"><span class="dot" aria-hidden="true"></span> local · open source · MIT</p>
       <h1 class="rise">Your job search, as two agent skills.</h1>
-      <p class="sub rise d1">Find roles you can actually get, then apply through your own Chrome — with a local tracker that remembers everything.</p>
+      <p class="sub rise d1">Find roles you can actually get — level and stack matched, never guessed — then apply through your own Chrome, with a local tracker that remembers everything.</p>
       <div class="install rise d2">
         <div class="bar">
           <span>install — one line</span>
@@ -207,7 +207,7 @@
     <div class="session rise d2 mono" role="img" aria-label="Example agent session: ask for jobs, then apply">
       <span class="cap">example session</span>
       <div class="you">find me jobs</div>
-      <div class="out">8 roles · ranked by fit · 2 stale flagged · 5 skipped as seen</div>
+      <div class="out">6 roles · level + stack matched · 3 partials flagged · 12 skipped</div>
       <hr>
       <div class="you">apply to all interested</div>
       <div class="out">3 submitted · 1 paused (captcha) · answers saved</div>
@@ -217,7 +217,7 @@
   <section>
     <div class="wrap">
       <h2>What you get</h2>
-      <p class="lede">Two skills that work together: one finds and remembers, one applies — both on your machine.</p>
+      <p class="lede">Two skills that work together — one finds and remembers, one applies — with a calibrated decision layer underneath.</p>
 
       <div class="skill">
         <span class="no mono">01</span>
@@ -226,6 +226,7 @@
           <p>Interviews you once from your CV, then sweeps your companies and boards every run — filtering by real eligibility, not marketing.</p>
         </div>
         <ul>
+          <li>Level + stack matches only — a mismatch drops, it never surfaces</li>
           <li>Remote region, timezone, and comp floor enforced</li>
           <li>Learns companies you like, ignores the ones you don't</li>
           <li>Never surfaces the same role twice</li>
@@ -240,8 +241,23 @@
         </div>
         <ul>
           <li>Ashby · Greenhouse · Lever · Workable · Workday · LinkedIn +3</li>
+          <li>Jev picks every click and fill from the live page</li>
           <li>Pauses only on captchas, logins, consent, knockouts</li>
           <li>Answers banked so nothing is ever invented</li>
+        </ul>
+      </div>
+
+      <div class="skill">
+        <span class="no mono">03</span>
+        <div>
+          <h3>Jev — the decision layer</h3>
+          <p>Every judgment — eligibility, level/stack fit, liveness, duplicates, form answers, the next click — is a typed answer with a calibrated confidence from <a href="https://typesafe.ai">TypeSafe</a>'s System One model.</p>
+        </div>
+        <ul>
+          <li>Below-level or missing-requirement roles drop — no wasted applications</li>
+          <li>Browser loop: observe the page, jev_decide picks the operation, code acts</li>
+          <li>Uncertain stays uncertain — never rounded up to a yes</li>
+          <li>Profiles redacted before every call</li>
         </ul>
       </div>
     </div>
@@ -260,7 +276,7 @@
         <div>
           <span class="no mono">step 2</span>
           <h3>Sweep &amp; rank</h3>
-          <p>Starter companies, learned sources, and boards — verified live, ranked by fit.</p>
+          <p>Starter companies, learned sources, and boards — verified live, gated by level + stack, ranked by fit.</p>
         </div>
         <div>
           <span class="no mono">step 3</span>
@@ -275,11 +291,12 @@
     <div class="wrap local">
       <div>
         <h2>Local by default</h2>
-        <p class="lede">No server, no account, no external apply service. Profile, history, notes, and CV stay on disk.</p>
+        <p class="lede">No server, no account, no external apply service. Profile, history, notes, and CV stay on disk — Jev calls send only redacted judgment input, never your identity.</p>
         <div class="report">
-          <b>Ranked by real fit</b><br>
+          <b>Level + stack matched, then ranked</b><br>
           #3 Stripe — Staff Engineer · $210–260k · remote (EU) · confirmed<br>
-          #4 Glean — Senior SWE, Infra · $180–230k · hybrid BLR · likely
+          #4 Glean — Senior SWE, Infra · $180–230k · hybrid BLR · likely<br>
+          12 dropped — below level ×5 · missing requirement ×7
         </div>
       </div>
       <div>
@@ -288,6 +305,7 @@
           <div>├ profile.json <span class="c">— you</span></div>
           <div>├ data.json <span class="c">— every role seen</span></div>
           <div>├ companies.json <span class="c">— learned &amp; ignored</span></div>
+          <div>├ agent-logs/ <span class="c">— every decision audited</span></div>
           <div>└ applications.md <span class="c">— human-readable</span></div>
         </div>
       </div>
