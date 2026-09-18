@@ -9,8 +9,13 @@ Two agent skills that run your entire job search — and keep everything on your
   Greenhouse, Lever, Workable, iCIMS, Workday, SmartRecruiters, Microsoft, LinkedIn including Easy
   Apply, company portals), pausing for you only on captchas, logins, consent walls, or knockout
   mismatches — and checking for prior applications first so nothing is ever submitted twice.
+- **a Jev decision layer** — every semantic judgment (eligibility, fit, liveness, duplicates, form
+  answers) is a typed answer with a calibrated confidence from [Jev](https://typesafe.ai), a TypeSafe
+  System One model — uncertain stays uncertain, and nothing is invented to fill a report.
 
-No server, no account, no external apply service. Your data never leaves `~/.job-search/`.
+No server, no account, no external apply service. Profile, tracker, notes, and CV stay in
+`~/.job-search/`; if you set `TYPESAFE_API_KEY`, the only thing that leaves the machine is Jev's
+redacted judgment input — years, skills, regions, posting text — never your name, email, phone, or links.
 
 ## Install
 
@@ -75,6 +80,25 @@ profile-driven: one-line requests like "any new remote jobs?" or "who's hiring i
 
 Then say **"apply to role 214"** or **"apply to all interested"** to run applications.
 
+## The decision layer: Jev
+
+The skills don't guess. Every language-understanding decision — is this posting live, can you work
+there, how well does it fit, is this the same job, has this question already been answered — is one
+[Jev](https://typesafe.ai) call that returns a *typed* answer with a calibrated confidence, in well
+under a second:
+
+- **Uncertain stays uncertain.** A verdict below the confidence bar is reported as `unverified` or
+  `partial`, never rounded up to a yes — that's what makes the report trustworthy.
+- **Nothing is invented.** Answers are fixed types (yes/no/choice/score) with no free text to go off
+  the rails — no hallucinated verdicts and no invented form answers.
+- **Measured against your own rejections.** `evals/` replays real mismatches and real fits from your
+  tracker history through the matcher, with a 90%-drops / 90%-keeps bar.
+- **Private by construction.** Profiles are redacted before every call: years, seniority, skills,
+  regions only.
+
+`TYPESAFE_API_KEY` turns it on (early access at [typesafe.ai](https://typesafe.ai)). Without a key
+the skills fall back to the agent's own judgment and say so — everything else still works.
+
 ## Where your data lives
 
 ```
@@ -105,6 +129,8 @@ The skills drive the tracker for you; if you ever want it directly,
   the `chrome-devtools` MCP tools instead
 - Chrome for applications (the helper can launch it with a dedicated profile:
   `node skills/apply-to-jobs/scripts/chrome.mjs launch`)
+- `TYPESAFE_API_KEY` for the Jev decision layer — optional; without it the skills fall back to the
+  agent's own judgment and note it in the report
 - macOS Keychain is optional — only if you preconfigure credentials for login-walled portals
 
 ## How the skills stay honest
@@ -116,6 +142,8 @@ The skills drive the tracker for you; if you ever want it directly,
 - Never trusts a rotting board — `company verify` health-checks every starter + learned portal
   (dead/moved/blocked) and re-checks learned entries older than 90 days
 - Never fabricates an answer: unknown required form questions pause the run and are stored for next time
+- Never dresses up a judgment: every Jev answer carries a calibrated confidence, and a below-bar
+  verdict is reported as `unverified` — not sold as a match
 - Never stretches your CV to fit a role — partial fits are labeled as such
 - Never reports an aggregator link when the real posting is on the company's own ATS
 
