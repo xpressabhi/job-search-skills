@@ -242,7 +242,10 @@ const commands = {
       cdp.close();
       return;
     }
-    const res = await fetch(`${BASE}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' });
+    // Chrome DevTools HTTP API takes the raw URL as the query string
+    // (e.g. PUT /json/new?https://example.com). encodeURI preserves :/?/&
+    // while escaping spaces; encodeURIComponent would mangle the scheme.
+    const res = await fetch(`${BASE}/json/new?${encodeURI(url)}`, { method: 'PUT' });
     const target = await res.json();
     console.log(`opened ${target.url}`);
   },
@@ -298,13 +301,28 @@ const commands = {
       const items = JSON.parse(${COLLECT_JS});
       const el = items[${i}];
       if (!el) return 'no-element';
-      const nodes = [...document.querySelectorAll('input,textarea,select,[contenteditable=true]')];
-      const nodesByRect = nodes
-        .map((n) => ({ n, r: n.getBoundingClientRect() }))
-        .filter(({ r }) => r.width > 1 && r.height > 1)
-        .map(({ n, r }) => ({ n, d: Math.hypot(r.x + r.width / 2 - el.x, r.y + r.height / 2 - el.y) }))
-        .sort((a, b) => a.d - b.d);
-      const node = nodesByRect[0] && nodesByRect[0].d < 6 ? nodesByRect[0].n : null;
+      // Prefer stable id/name resolution over coordinate distance so a DOM
+      // shift between snap and fill cannot silently fill the wrong field.
+      let node = null;
+      if (el.id) {
+        const byId = document.getElementById(el.id);
+        if (byId && ((/^(INPUT|TEXTAREA|SELECT)$/.test(byId.tagName)) || byId.isContentEditable)) node = byId;
+      }
+      if (!node && el.name) {
+        try {
+          const byName = document.querySelector('[name="' + CSS.escape(el.name) + '"]');
+          if (byName) node = byName;
+        } catch { /* bad name — fall through to distance */ }
+      }
+      if (!node) {
+        const nodes = [...document.querySelectorAll('input,textarea,select,[contenteditable=true]')];
+        const nodesByRect = nodes
+          .map((n) => ({ n, r: n.getBoundingClientRect() }))
+          .filter(({ r }) => r.width > 1 && r.height > 1)
+          .map(({ n, r }) => ({ n, d: Math.hypot(r.x + r.width / 2 - el.x, r.y + r.height / 2 - el.y) }))
+          .sort((a, b) => a.d - b.d);
+        node = nodesByRect[0] && nodesByRect[0].d < 6 ? nodesByRect[0].n : null;
+      }
       if (!node) return 'no-input';
       node.focus();
       if (node.isContentEditable) {
@@ -353,17 +371,25 @@ const commands = {
       const items = JSON.parse(${COLLECT_JS});
       const el = items[${i}];
       if (!el) return 'no-element';
-      const selects = [...document.querySelectorAll('select')];
-      const select = selects
-        .map((s) => ({ s, r: s.getBoundingClientRect() }))
-        .map(({ s, r }) => ({ s, d: Math.hypot(r.x + r.width / 2 - el.x, r.y + r.height / 2 - el.y) }))
-        .sort((a, b) => a.d - b.d)[0];
-      if (!select || select.d > 8) return 'no-select';
+      let sel = null;
+      if (el.id) {
+        const byId = document.getElementById(el.id);
+        if (byId && byId.tagName === 'SELECT') sel = byId;
+      }
+      if (!sel) {
+        const selects = [...document.querySelectorAll('select')];
+        const best = selects
+          .map((s) => ({ s, r: s.getBoundingClientRect() }))
+          .map(({ s, r }) => ({ s, d: Math.hypot(r.x + r.width / 2 - el.x, r.y + r.height / 2 - el.y) }))
+          .sort((a, b) => a.d - b.d)[0];
+        if (!best || best.d > 8) return 'no-select';
+        sel = best.s;
+      }
       const wanted = ${JSON.stringify(value)}.toLowerCase();
-      for (const opt of select.s.options) {
+      for (const opt of sel.options) {
         if (opt.value.toLowerCase() === wanted || opt.textContent.trim().toLowerCase() === wanted) {
-          select.s.value = opt.value;
-          select.s.dispatchEvent(new Event('change', { bubbles: true }));
+          sel.value = opt.value;
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
           return opt.textContent.trim();
         }
       }

@@ -46,7 +46,21 @@ function load() {
   if (!fs.existsSync(DATA_FILE)) return emptyData();
   const raw = fs.readFileSync(DATA_FILE, 'utf8').trim();
   if (!raw) return emptyData();
-  const data = JSON.parse(raw);
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (err) {
+    // Fail closed: never delete or overwrite a corrupt store.
+    try {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backup = `${DATA_FILE}.corrupt-${stamp}.bak`;
+      fs.copyFileSync(DATA_FILE, backup);
+      console.error(`error: ${DATA_FILE} is not valid JSON (${err.message}). Left untouched; backup at ${backup}`);
+    } catch {
+      console.error(`error: ${DATA_FILE} is not valid JSON (${err.message}). Left untouched.`);
+    }
+    process.exit(2);
+  }
   data.roles ||= [];
   data.answers ||= [];
   data.queue ||= [];
@@ -61,13 +75,43 @@ function save(data) {
   writeExport(data);
 }
 
+function saveProfile(profile) {
+  fs.mkdirSync(HOME, { recursive: true });
+  const tmp = `${PROFILE_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(profile, null, 2)}\n`);
+  fs.renameSync(tmp, PROFILE_FILE);
+}
+
 function nextId(rows) {
   return rows.reduce((max, r) => Math.max(max, r.id || 0), 0) + 1;
 }
 
 const norm = (s) => String(s ?? '').trim().replace(/\s+/g, ' ');
 const normKey = (s) => norm(s).toLowerCase();
-const normUrl = (u) => norm(u).replace(/\/+$/, '');
+// Canonicalize posting URLs for dedupe without merging distinct roles:
+// strip hash + known tracking params only (utm_*, gh_src/gh_jid, lever-*,
+// click IDs). All other query params (e.g. ?jobId=) are preserved so
+// query-identified postings still dedupe distinctly. No stored data is
+// rewritten — both sides go through this on lookup.
+const normUrl = (u) => {
+  const s = norm(u);
+  if (!s) return s;
+  try {
+    const parsed = new URL(s);
+    parsed.hash = '';
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (/^(utm_.*|gh_src|gh_jid|fbclid|gclid|msclkid|mc_cid|mc_eid|igshid|vero_id)$/i.test(key) || /^lever-/i.test(key)) {
+        parsed.searchParams.delete(key);
+      }
+    }
+    let pathname = parsed.pathname.replace(/\/+$/, '');
+    if (!pathname) pathname = '';
+    const query = parsed.searchParams.toString();
+    return `${parsed.protocol}//${parsed.host.toLowerCase()}${pathname}${query ? `?${query}` : ''}`;
+  } catch {
+    return s.replace(/\/+$/, '');
+  }
+};
 
 function findRole(data, query, flags = {}) {
   const q = norm(query);
@@ -687,8 +731,7 @@ const commands = {
       const list = profile.search.company_rules.exclude_companies;
       const already = list.some((e) => normKey(typeof e === 'string' ? e : e?.name) === key);
       if (!already) list.push(norm(name));
-      fs.mkdirSync(HOME, { recursive: true });
-      fs.writeFileSync(PROFILE_FILE, `${JSON.stringify(profile, null, 2)}\n`);
+      saveProfile(profile);
 
       const c = loadCompanies();
       const learnedBefore = c.learned.length;
@@ -742,7 +785,7 @@ const commands = {
       const next = list.filter((e) => normKey(typeof e === 'string' ? e : e?.name) !== key);
       removed += list.length - next.length;
       profile.search.company_rules.exclude_companies = next;
-      fs.writeFileSync(PROFILE_FILE, `${JSON.stringify(profile, null, 2)}\n`);
+      saveProfile(profile);
 
       const c = loadCompanies();
       const before = c.blocked.length;
@@ -1013,6 +1056,7 @@ const commands = {
       if (!role) fail(`no role ${roleId}`);
       const row = data.queue.find((q) => q.id === queueId);
       if (!row) fail(`no queue row ${queueId}`);
+      if (row.role_id !== roleId) fail(`queue ${queueId} belongs to role ${row.role_id}, not role ${roleId} — refusing to mark the wrong role applied`);
       setStatus(role, 'applied', pos.slice(3).join(' ') || 'submitted via apply-to-jobs');
       row.status = 'applied';
       row.message = pos.slice(3).join(' ') || 'submitted';
@@ -1064,8 +1108,7 @@ const commands = {
         node = node[part];
       }
       node[parts.at(-1)] = value;
-      fs.mkdirSync(HOME, { recursive: true });
-      fs.writeFileSync(PROFILE_FILE, `${JSON.stringify(profile, null, 2)}\n`);
+      saveProfile(profile);
       console.log(`profile set: ${key} = ${JSON.stringify(value)}`);
       return;
     }
@@ -1074,8 +1117,7 @@ const commands = {
       if (!file) fail('usage: profile import <file.json>');
       const incoming = JSON.parse(fs.readFileSync(file, 'utf8'));
       const profile = deepMerge(defaultProfile(), incoming);
-      fs.mkdirSync(HOME, { recursive: true });
-      fs.writeFileSync(PROFILE_FILE, `${JSON.stringify(profile, null, 2)}\n`);
+      saveProfile(profile);
       const data = load();
       const n = seedAnswers(data, profile.answers || []);
       save(data);
@@ -1092,7 +1134,11 @@ const commands = {
     const label = (labelParts.join('-') || 'search').replace(/[^a-z0-9-]+/gi, '-').toLowerCase();
     fs.mkdirSync(REPORTS_DIR, { recursive: true });
     const stamp = nowIso().slice(0, 10);
-    const dest = path.join(REPORTS_DIR, `${stamp}-${label}.md`);
+    // Never overwrite an existing report: add -2, -3… suffix.
+    let dest = path.join(REPORTS_DIR, `${stamp}-${label}.md`);
+    for (let n = 2; fs.existsSync(dest); n += 1) {
+      dest = path.join(REPORTS_DIR, `${stamp}-${label}-${n}.md`);
+    }
     fs.copyFileSync(file, dest);
     console.log(dest);
   },
