@@ -11,6 +11,11 @@ floor, exclusions); the tracker is the memory.
 
 - Tracker: `node <this-skill-dir>/scripts/tracker.mjs <command>` — data lives in `~/.job-search/`
   (never in the repo). Full command reference: `reference/data-model.md` or `tracker.mjs help`.
+- Judgments: `node <this-skill-dir>/scripts/jev.mjs <command>` — Jev (TypeSafe System One)
+  for every semantic decision (eligibility, fit/rank, liveness, red flags, duplicates).
+  Needs `TYPESAFE_API_KEY`; without it, judge manually and say so. Details: `reference/jev.md`.
+- Browser decisions: the apply skill's `chrome.mjs decide` + `do` drive page actions through
+  the Jev browser-decision loop — never guess a control from coordinates.
 - Deep references, load on demand: `reference/companies.md` (starter company universe),
   `reference/search-playbook.md` (techniques, boards, verification, red flags).
 
@@ -41,21 +46,29 @@ list`); use `reference/search-playbook.md` §2–§7 for sweep technique (ATS JS
 are never fetched. Only go to supplement boards when the primary sweep yields too few candidates (or
 the user asks for a wider search).
 
-Every candidate passes, in order:
+Every candidate passes, in order (free filters before paid judgments — deterministic
+drops never spend a Jev call):
 
 1. **Never re-surface gate:** `tracker.mjs seen <url> <company> <title> --mode … --location … --salary … --posted …`
    - `NEW` (exit 0) → first time; keep going.
    - `ALREADY SEEN` (exit 1) → drop it; count it into a "previously surfaced — skipped: N" line.
      Roles the tracker marks `applied`/pipeline/`not_interested` are never reported again.
+   - Cross-source copy (LinkedIn vs company ATS, title reworded) → `jev.mjs same-role
+     --a <role-a.json> --b <role-b.json>`; `same:true` counts as the same application.
 2. **Exclusions** — ignored companies (`tracker.mjs company list`) are never fetched or surfaced;
    profile `search.company_rules` (product-only, excluded types/companies) and relocation per
    playbook §9–§10. The `seen` check also warns on stderr if a role sneaks in from an ignored company.
-3. **Liveness** — fetch the posting; a dead link never reaches the report. `expired` / `redirected` /
-   `not_found` / `suspicious` → drop and count into a "dead/expired — skipped: N" line; anti-bot
-   blocked → retry once, then keep but flag `unverified` (playbook §9a).
-4. **Eligibility** — remote region + timezone + payroll; on-site/hybrid office + mode (§9).
-5. **Comp floor** from the profile — below floor = skip.
-6. **CV-fit** — score against the CV, not the summary (§11).
+3. **Liveness** — `jev.mjs liveness --page <fetched-text> --role <role.json>`; `dead`/
+   `suspicious` → drop and count into a "dead/expired — skipped: N" line; `unverified` →
+   keep but flag `unverified` (playbook §9a). Anti-bot blocked → retry once, then keep
+   but flag `unverified`.
+4. **Eligibility** — `jev.mjs eligibility --profile <profile.json> --posting <posting.json>`
+   (remote region + timezone + payroll + auth + relocation, playbook §9). `ineligible` =
+   skip; `unverified` = keep, ranked below `eligible`.
+5. **Comp floor** from the profile — below floor = skip (numeric check in code, never Jev).
+6. **CV-fit** — `jev.mjs fit` per role, or `jev.mjs rank` over the whole shortlist (§3).
+   Track mismatches and zero-coverage roles drop here; level mismatches and thin coverage
+   cap at `partial fit` with the gap named.
 
 Record the posting's own publish date as `--posted YYYY-MM-DD` (empty if not shown) and the exact
 canonical ATS URL — both are reused verbatim in the report.
@@ -66,10 +79,14 @@ runs sweep it automatically.
 
 ## Step 3 — Score and rank
 
-Follow playbook §11: eligibility confirmed > published salary > CV-fit > company quality >
-timezone/commute fit. Only `interested` roles are ever re-shown, so the report is the user's one shot
-at each role — rank honestly, and label `partial fit` / `(stretch: <gap>)` / `(stale, posted …)`
-rather than dressing up a bad match.
+`jev.mjs rank --profile <profile.json> --roles <shortlist.json>` scores eligibility + fit
+in one fan-out call per role and returns verdict-then-composite order (playbook §11:
+eligibility confirmed > published salary > CV-fit > company quality > timezone/commute
+fit — salary/company-currency math stays in code). Only `interested` roles are ever
+re-shown, so the report is the user's one shot at each role — rank honestly, and label
+`partial fit` / `(stretch: <gap>)` / `(stale, posted …)` rather than dressing up a bad
+match. Red-flag hits (`jev.mjs redflags`) override the order entirely, however good the
+math looks.
 
 ## Step 4 — Deliver a ranked report
 
@@ -89,6 +106,9 @@ draft outreach to the top 3, or apply now (hand off to the **apply-to-jobs** ski
 
 - Picked a role → `tracker.mjs mark interested <id>` (only `interested` roles may be re-shown).
 - Declined → `mark not_interested <id>` · expired posting → `mark expired <id>`.
+- Rejected → always capture the reason — it tunes future ranking:
+  `mark rejected <id> --reason <location|comp|level|stack|domain|track|sponsorship|unknown>`.
+  `tracker.mjs stats` shows the breakdown plus low-yield companies (3+ applied, none advanced).
 - **Repeat declines → offer the ignore list.** After updating statuses, run
   `tracker.mjs company candidates --min 2`; if a company shows up, offer: "You've passed on N
   <Company> roles — ignore them entirely?" On yes:

@@ -19,10 +19,10 @@ Tracker: `node <skill-dir>/scripts/tracker.mjs <command>` (skill dir = where thi
 | Command | What it does |
 |---|---|
 | `init` | Create the store, print paths |
-| `stats` | Status counts, answers, open queue rows |
+| `stats` | Status counts, answers, open queue rows + rejection-reason breakdown + low-yield companies |
 | `seen <url> <company> <title> [--mode --location --salary --posted --source]` | Dedupe check + record. Prints `NEW` (exit 0) or `ALREADY SEEN` (exit 1) |
 | `add-batch <file.json\|->` | Bulk-add roles (JSON array; same dedupe) |
-| `mark <status> <id\|url\|company\|title\|"company:title"> [--note text]` | Set pipeline status |
+| `mark <status> <id\|url\|company\|title\|"company:title"> [--note text] [--reason R]` | Set pipeline status (`rejected` reasons: location, comp, level, stack, domain, track, sponsorship, unknown) |
 | `note <key> <text>` | Append a timestamped note |
 | `role <key>` | Print one role as JSON |
 | `list [--status S] [--limit N] [--all] [--json]` | Recent roles, newest first |
@@ -116,7 +116,7 @@ Reading a field: `tracker profile get search.salary.full_time_min`. Prefer this 
   "roles": [ { "id": 1, "url": "…", "company": "…", "title": "…", "mode": "remote",
                "location": "…", "salary": "…", "posted_at": "YYYY-MM-DD", "source": "…",
                "status": "shown", "score": null, "first_seen_at": "…", "last_seen_at": "…",
-               "applied_at": null,
+               "applied_at": null, "rejection_reason": null,
                "notes": [ { "at": "…", "text": "…" } ],
                "history": [ { "at": "…", "status": "shown" } ] } ],
   "answers": [ { "question": "…", "answer": "…", "category": "…", "updated_at": "…" } ],

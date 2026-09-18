@@ -34,6 +34,12 @@ const APPLIED_STATUSES = ['applied', 'oa', 'phone', 'onsite', 'offer', 'accepted
 const QUEUE_STATUSES = ['queued', 'filling', 'awaiting_user', 'applied', 'skipped', 'failed', 'aborted'];
 const OPEN_QUEUE_STATUSES = ['queued', 'filling', 'awaiting_user'];
 
+// Structured rejection reasons — captured with `mark rejected <id> --reason <r>`
+// so future ranking can learn which mismatches actually kill applications.
+const REJECTION_REASONS = [
+  'location', 'comp', 'level', 'stack', 'domain', 'track', 'sponsorship', 'unknown',
+];
+
 const nowIso = () => new Date().toISOString();
 
 // ---------------------------------------------------------------- store
@@ -172,6 +178,7 @@ function buildRole(input) {
     source: norm(input.source) || null,
     status: 'shown',
     score: input.score ?? null,
+    rejection_reason: null,
     first_seen_at: at,
     last_seen_at: at,
     applied_at: null,
@@ -192,13 +199,14 @@ function insertRole(data, input) {
   return { role, isNew: true };
 }
 
-function setStatus(role, status, note) {
+function setStatus(role, status, note, reason) {
   const at = nowIso();
   role.status = status;
   role.last_seen_at = at;
   role.history.push({ at, status });
   if (status === 'applied' && !role.applied_at) role.applied_at = at;
   if (note) role.notes.push({ at, text: note });
+  if (status === 'rejected' && reason) role.rejection_reason = reason;
 }
 
 // ---------------------------------------------------------------- export
@@ -545,6 +553,26 @@ function requireStatus(status, list) {
 
 // ---------------------------------------------------------------- commands
 
+// Companies the user applied to repeatedly without ever advancing past
+// `applied` — their boards convert at ~0% for this profile. Shared with
+// jev.mjs rank (which reimplements the same rule over data.json).
+const ADVANCED_STATUSES = ['oa', 'phone', 'onsite', 'offer', 'accepted'];
+function lowYieldCompanies(data, minApplied = 3) {
+  const by = new Map();
+  for (const r of data.roles) {
+    const key = normKey(r.company || '');
+    if (!key) continue;
+    if (!by.has(key)) by.set(key, { name: norm(r.company), applied: 0, rejected: 0, advanced: 0 });
+    const e = by.get(key);
+    if (r.applied_at || APPLIED_STATUSES.includes(r.status)) e.applied += 1;
+    if (r.status === 'rejected') e.rejected += 1;
+    if (ADVANCED_STATUSES.includes(r.status)) e.advanced += 1;
+  }
+  return [...by.values()]
+    .filter((e) => e.applied >= minApplied && e.advanced === 0)
+    .sort((a, b) => b.applied - a.applied);
+}
+
 const commands = {
   init() {
     fs.mkdirSync(REPORTS_DIR, { recursive: true });
@@ -562,6 +590,23 @@ const commands = {
     console.log(`${String(data.answers.length).padStart(4)}  stored answers`);
     const open = data.queue.filter((q) => OPEN_QUEUE_STATUSES.includes(q.status)).length;
     console.log(`${String(open).padStart(4)}  open apply-queue rows`);
+    const reasons = {};
+    for (const r of data.roles) {
+      if (r.status === 'rejected' && r.rejection_reason) {
+        reasons[r.rejection_reason] = (reasons[r.rejection_reason] || 0) + 1;
+      }
+    }
+    if (Object.keys(reasons).length) {
+      console.log('rejection reasons:');
+      for (const k of REJECTION_REASONS) {
+        if (reasons[k]) console.log(`${String(reasons[k]).padStart(4)}  ${k}`);
+      }
+    }
+    const low = lowYieldCompanies(data);
+    if (low.length) {
+      console.log('low-yield companies (3+ applied, none advanced):');
+      for (const e of low) console.log(`   ${e.name} — ${e.applied} applied, ${e.rejected} rejected`);
+    }
   },
 
   seen(pos, flags) {
@@ -608,9 +653,21 @@ const commands = {
     const [status, ...rest] = pos;
     const query = rest.join(' ');
     requireStatus(status, STATUSES);
+    if (flags.reason !== undefined && flags.reason !== true) {
+      if (!REJECTION_REASONS.includes(flags.reason)) {
+        fail(`bad reason "${flags.reason}" (use one of: ${REJECTION_REASONS.join(', ')})`);
+      }
+      if (status !== 'rejected') {
+        console.error(`warn: --reason is only stored with "rejected" (ignoring for ${status})`);
+      }
+    }
     const data = load();
     const role = findRole(data, query, flags);
-    setStatus(role, status, flags.note || null);
+    const reason = typeof flags.reason === 'string' ? flags.reason : null;
+    if (status === 'rejected' && !reason && !role.rejection_reason) {
+      console.error(`warn: no --reason given (use one of: ${REJECTION_REASONS.join(', ')}) — rejection reasons tune future ranking`);
+    }
+    setStatus(role, status, flags.note || null, status === 'rejected' ? reason : null);
     save(data);
     console.log(`role ${role.id} (${role.company} — ${role.title}) -> ${status}`);
   },
@@ -1343,7 +1400,8 @@ usage: node tracker.mjs <command> [args]
   stats                                 counts by status
   seen <url> <company> <title> [flags]  dedupe check + record (exit 1 = ALREADY SEEN)
   add-batch <file.json|->               bulk-add roles from JSON
-  mark <status> <id|url|company|title>  set pipeline status [--note text]
+  mark <status> <id|url|company|title>  set pipeline status [--note text] [--reason R]
+                                         (rejected reasons: location, comp, level, stack, domain, track, sponsorship, unknown)
   note <id|...> <text>                  append a note
   role <id|...>                         print one role as JSON
   list [--status S] [--limit N] [--all] [--json]

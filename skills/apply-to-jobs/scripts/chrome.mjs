@@ -103,6 +103,169 @@ async function connect(flags = {}) {
   return { cdp, page, pages };
 }
 
+// ---------------------------------------------------------------- jev decision loop
+
+const JEV_ENDPOINT = process.env.TYPESAFE_ENDPOINT || 'https://api.typesafe.ai/v1/systemone';
+const JEV_MODEL = process.env.TYPESAFE_MODEL || 'jev-latest';
+const DECISION_LOG = path.join(HOME, 'agent-logs', 'browser-decisions.jsonl');
+
+const CONTROLS = ['SCROLL_UP', 'SCROLL_DOWN', 'WAIT'];
+const NEXT_ACTION_RULES =
+  'Pick the operation that advances the goal. Prefer an unsatisfied required field over a satisfied one. Never repeat a step the history shows satisfied. WAIT only when a needed control is absent or loading. DONE only when the page visibly satisfies every requirement; BLOCKED when nothing can progress.';
+const TARGET_RULES =
+  'Pick the single observed target this operation should act on. Use only the candidates provided; never invent a target.';
+
+// Snapshot elements -> the action space Jev decides over (kinds: click|fill|select|control).
+function buildActions(items) {
+  const actions = [];
+  for (let i = 0; i < items.length; i++) {
+    const el = items[i];
+    const role = el.tag === 'select' ? 'listbox'
+      : el.tag === 'textarea' ? 'textbox'
+      : el.type === 'checkbox' || el.type === 'radio' ? el.type
+      : el.type === 'submit' || el.type === 'button' || el.tag === 'button' ? 'button'
+      : el.tag === 'a' ? 'link' : el.tag === 'input' ? 'textbox' : el.tag;
+    const label = (el.label || role).slice(0, 120);
+    const base = { node: String(i), label, role, index: i };
+    if (el.tag === 'select') {
+      actions.push({ ...base, id: `select-${i}`, kind: 'select', current_value: el.value || '' });
+    } else if (['input', 'textarea'].includes(el.tag) && !['checkbox', 'radio', 'submit', 'button', 'file', 'hidden'].includes(el.type)) {
+      actions.push({ ...base, id: `fill-${i}`, kind: 'fill', value: el.value || '' });
+    } else if (['checkbox', 'radio', 'submit', 'button'].includes(el.type) || el.tag === 'button' || el.tag === 'a') {
+      actions.push({ ...base, id: `click-${i}`, kind: 'click' });
+    } else {
+      actions.push({ ...base, id: `click-${i}`, kind: 'click' });
+    }
+  }
+  for (const c of CONTROLS) actions.push({ id: c, kind: 'control', node: '', label: c });
+  return actions;
+}
+
+function loadHistory() {
+  try {
+    const lines = fs.readFileSync(DECISION_LOG, 'utf8').trim().split('\n').slice(-8);
+    return lines.map((l) => JSON.parse(l)).filter(Boolean);
+  } catch { return []; }
+}
+
+function appendHistory(entry) {
+  try {
+    fs.mkdirSync(path.dirname(DECISION_LOG), { recursive: true });
+    fs.appendFileSync(DECISION_LOG, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
+  } catch { /* history is best-effort */ }
+}
+
+// Same request shape as jev-browser's jev_decide: one Choice over operations,
+// one Choice per operation over its valid targets.
+function buildJevRequest(goal, page, history) {
+  const groups = { CLICK: {}, TYPE_TEXT: {}, SELECT: {} };
+  const operations = {
+    CLICK: 'Activate a clickable element',
+    TYPE_TEXT: 'Enter or replace text in a fillable field',
+    SELECT: 'Choose an option in a dropdown',
+  };
+  for (const a of page.actions) {
+    if (a.kind === 'click') groups.CLICK[String(a.node)] = a;
+    else if (a.kind === 'fill') groups.TYPE_TEXT[String(a.node)] = a;
+    else if (a.kind === 'select') groups.SELECT[String(a.node)] = a;
+  }
+  const questions = {
+    operation: {
+      type: 'choice',
+      instructions: { goal, rules: NEXT_ACTION_RULES },
+      criteria: {
+        ...operations,
+        DONE: 'Every requirement is visibly satisfied.',
+        BLOCKED: 'No supported operation can progress.',
+        SCROLL_UP: 'Scroll the page up',
+        SCROLL_DOWN: 'Scroll the page down',
+        WAIT: 'Wait for the page to load or change',
+      },
+    },
+  };
+  const criteriaFor = (a) => ({
+    what: a.label,
+    ...(a.role ? { role: a.role } : {}),
+    ...(a.value ? { current_value: String(a.value).slice(0, 60) } : {}),
+  });
+  if (Object.keys(groups.CLICK).length) {
+    questions.click_target = {
+      type: 'choice',
+      instructions: { goal, operation: 'CLICK', rules: [NEXT_ACTION_RULES, TARGET_RULES] },
+      criteria: Object.fromEntries(Object.entries(groups.CLICK).map(([k, a]) => [k, criteriaFor(a)])),
+    };
+  }
+  if (Object.keys(groups.TYPE_TEXT).length) {
+    questions.type_text_target = {
+      type: 'choice',
+      instructions: { goal, operation: 'TYPE_TEXT', rules: [NEXT_ACTION_RULES, TARGET_RULES] },
+      criteria: Object.fromEntries(Object.entries(groups.TYPE_TEXT).map(([k, a]) => [k, criteriaFor(a)])),
+    };
+  }
+  if (Object.keys(groups.SELECT).length) {
+    questions.select_target = {
+      type: 'choice',
+      instructions: { goal, operation: 'SELECT', rules: [NEXT_ACTION_RULES, TARGET_RULES] },
+      criteria: Object.fromEntries(Object.entries(groups.SELECT).map(([k, a]) => [k, criteriaFor(a)])),
+    };
+  }
+  return {
+    state: {
+      goal,
+      page: { url: page.url, title: page.title, text: page.text.slice(0, 6000) },
+      history,
+    },
+    questions,
+  };
+}
+
+async function callJev(body) {
+  const key = (process.env.TYPESAFE_API_KEY || '').trim();
+  if (!key) {
+    console.error('error: TYPESAFE_API_KEY not set — run "decide --print" and use the jev_decide MCP tool instead.');
+    process.exit(2);
+  }
+  const res = await fetch(JEV_ENDPOINT, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: JEV_MODEL, ...body }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    console.error(`error: jev ${res.status}: ${text.slice(0, 300)}`);
+    process.exit(2);
+  }
+  return res.json();
+}
+
+async function callTextField(context) {
+  const key = (process.env.TEXT_MODEL_API_KEY || process.env.OPENAI_API_KEY || '').trim();
+  const base = process.env.TEXT_MODEL_BASE_URL || 'https://api.deepseek.com/v1';
+  const model = process.env.TEXT_MODEL || 'deepseek-chat';
+  if (!key) {
+    console.error('error: TEXT_MODEL_API_KEY not set — answer from profile/QA bank and pass the value to fill directly.');
+    process.exit(2);
+  }
+  const res = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: 'You output exactly one string: the value to type into the described web form field. No quotes, no explanation. Use only the provided facts.' },
+        { role: 'user', content: JSON.stringify(context) },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    console.error(`error: text model ${res.status}: ${text.slice(0, 300)}`);
+    process.exit(2);
+  }
+  const data = await res.json();
+  console.log(String(data?.choices?.[0]?.message?.content || '').trim());
+}
+
 // ---------------------------------------------------------------- page JS
 
 const COLLECT_JS = `(() => {
@@ -265,10 +428,140 @@ const commands = {
   },
 
   async text(pos, flags) {
+    if (flags.field) {
+      let ctx;
+      try { ctx = JSON.parse(flags.field); } catch { throw new Error('--field must be JSON: {goal, field, page?, facts?}'); }
+      await callTextField(ctx);
+      return;
+    }
     const { cdp } = await connect();
     const raw = await evalJs(cdp, 'document.body ? document.body.innerText : ""');
     const max = Number(flags.max || 6000);
     console.log(String(raw || '').slice(0, max));
+    cdp.close();
+  },
+
+  // One decision cycle: snapshot -> action space -> Jev picks operation + target.
+  // Default: print the request for the jev_decide MCP tool. --local: call the API directly.
+  async decide(pos, flags) {
+    const goal = String(flags.goal || pos.join(' ') || '').trim();
+    if (!goal) throw new Error('usage: decide --goal "<what to accomplish on this page>" [--local] [--print] [--url U --title T --body B]');
+    let items = [];
+    let pageUrl = flags.url || '';
+    let pageTitle = flags.title || '';
+    let pageText = flags.body || '';
+    if (!flags.body) {
+      const { cdp, page } = await connect();
+      pageUrl = pageUrl || page.url || '';
+      pageTitle = pageTitle || page.title || '';
+      const rawText = await evalJs(cdp, 'document.body ? document.body.innerText : ""');
+      pageText = String(rawText || '').slice(0, 6000);
+      if (!flags.url || !flags.title) {
+        const docTitle = await evalJs(cdp, 'document.title').catch(() => pageTitle);
+        pageTitle = pageTitle || String(docTitle || '');
+      }
+      items = await collect(cdp);
+      cdp.close();
+    }
+    const actions = buildActions(items);
+    const history = loadHistory();
+    const request = buildJevRequest(goal, { url: pageUrl, title: pageTitle, text: pageText, actions }, history);
+    if (flags.print || !process.env.TYPESAFE_API_KEY) {
+      console.log(JSON.stringify({ ...request, _hint: 'Pass state+goal structure to jev_decide: {goal, page:{url,title,text,actions}, history}, then run "do <target> <kind>".' }, null, 1));
+      return;
+    }
+    const data = await callJev(request);
+    const a = data.answers || {};
+    const operation = a.operation?.choice || 'BLOCKED';
+    const targetKey = `${operation.toLowerCase()}_target`;
+    const targetAnswer = a[targetKey];
+    const target = targetAnswer?.choice ?? null;
+    const index = target !== null && /^\d+/.test(String(target)) ? Number(String(target).split(':')[0]) : null;
+    const decision = {
+      operation,
+      target,
+      index,
+      confidence: a.operation?.confidence ?? null,
+      operation_probabilities: a.operation?.probabilities || {},
+      target_confidence: targetAnswer?.confidence ?? null,
+      model: data.model || null,
+    };
+    appendHistory({ goal, operation, target, page_url: pageUrl });
+    console.log(JSON.stringify(decision, null, 1));
+  },
+
+  // Execute one decided action against the CURRENT snapshot (re-collects, so a
+  // stale index cannot hit the wrong element silently).
+  async do(pos) {
+    const i = Number(pos[0]);
+    const kind = String(pos[1] || 'click').toLowerCase();
+    const value = pos.slice(2).join(' ');
+    if (!Number.isInteger(i)) throw new Error('usage: do <index> <click|fill|select> [value]');
+    const { cdp } = await connect();
+    const items = await collect(cdp);
+    const el = items[i];
+    if (!el) throw new Error(`no element [${i}] in snapshot (re-run decide/snap)`);
+    if (kind === 'click') {
+      await clickAt(cdp, el.x, el.y);
+      console.log(`clicked [${i}] "${el.label}" @ ${el.x},${el.y}`);
+    } else if (kind === 'fill') {
+      if (!value) throw new Error('usage: do <index> fill <value>');
+      const filled = await evalJs(cdp, `(() => {
+        const items = JSON.parse(${COLLECT_JS});
+        const el = items[${i}];
+        if (!el) return 'no-element';
+        const nodes = [...document.querySelectorAll('input,textarea,[contenteditable=true]')]
+          .map((n) => ({ n, r: n.getBoundingClientRect() }))
+          .filter(({ r }) => r.width > 1 && r.height > 1)
+          .map(({ n, r }) => ({ n, d: Math.hypot(r.x + r.width / 2 - el.x, r.y + r.height / 2 - el.y) }))
+          .sort((a, b) => a.d - b.d);
+        const node = nodes[0] && nodes[0].d < 8 ? nodes[0].n : null;
+        if (!node) return 'no-input';
+        node.focus();
+        if (node.isContentEditable) node.textContent = ${JSON.stringify(value)};
+        else {
+          const proto = node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          Object.getOwnPropertyDescriptor(proto, 'value').set.call(node, ${JSON.stringify(value)});
+        }
+        node.dispatchEvent(new Event('input', { bubbles: true }));
+        node.dispatchEvent(new Event('change', { bubbles: true }));
+        return node.value !== undefined ? String(node.value).slice(0, 80) : 'ok';
+      })()`);
+      console.log(`filled [${i}] -> ${filled}`);
+    } else if (kind === 'select') {
+      if (!value) throw new Error('usage: do <index> select <value|label>');
+      const out = await evalJs(cdp, `(() => {
+        const items = JSON.parse(${COLLECT_JS});
+        const el = items[${i}];
+        if (!el) return 'no-element';
+        const selects = [...document.querySelectorAll('select')]
+          .map((s) => ({ s, r: s.getBoundingClientRect() }))
+          .map(({ s, r }) => ({ s, d: Math.hypot(r.x + r.width / 2 - el.x, r.y + r.height / 2 - el.y) }))
+          .sort((a, b) => a.d - b.d);
+        const sel = selects[0] && selects[0].d < 10 ? selects[0].s : null;
+        if (!sel) return 'no-select';
+        const wanted = ${JSON.stringify(value)}.toLowerCase();
+        for (const opt of sel.options) {
+          if (opt.value.toLowerCase() === wanted || opt.textContent.trim().toLowerCase() === wanted) {
+            sel.value = opt.value;
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            return opt.textContent.trim();
+          }
+        }
+        return 'option-not-found';
+      })()`);
+      console.log(`selected [${i}] -> ${out}`);
+    } else if (kind === 'control') {
+      const control = String(pos[1] || '').toUpperCase();
+      if (control === 'SCROLL_DOWN') await evalJs(cdp, 'window.scrollBy(0, window.innerHeight * 0.8)');
+      else if (control === 'SCROLL_UP') await evalJs(cdp, 'window.scrollBy(0, -window.innerHeight * 0.8)');
+      else if (control === 'WAIT') await new Promise((r) => setTimeout(r, 1000));
+      console.log(`control ${control}`);
+    } else {
+      throw new Error(`unknown kind "${kind}" (click|fill|select|control)`);
+    }
+    appendHistory({ operation: kind.toUpperCase(), target: String(i), page_url: el ? el.label : '' });
+    await new Promise((r) => setTimeout(r, 400));
     cdp.close();
   },
 

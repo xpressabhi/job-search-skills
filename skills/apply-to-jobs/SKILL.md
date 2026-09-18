@@ -15,7 +15,11 @@ profile. If it's missing, tell the user to install it, then stop.
 Paths (resolve relative to this skill's own directory):
 
 - Tracker: `../job-finder/scripts/tracker.mjs` (override with `$JOB_SEARCH_TRACKER`)
-- Browser helper: `scripts/chrome.mjs` (see `portals/_common.md` for the command set)
+- Judgments: `../job-finder/scripts/jev.mjs` — Jev for knockout, QA-match, applied-guard,
+  and submit verification (needs `TYPESAFE_API_KEY`; without it, judge manually).
+  Full reference: `../job-finder/reference/jev.md`.
+- Browser helper: `scripts/chrome.mjs` (see `portals/_common.md` for the command set) — its
+  `decide` subcommand drives the Jev browser-decision loop (snapshot → Jev picks → `do`).
 - Portal references: `portals/_common.md` (always read first) + `portals/<portal>.md`
 
 ## Step 0 — Resolve the target(s)
@@ -42,13 +46,16 @@ Fetch the work item: `tracker.mjs queue get <queueId>` → queue row + full role
 
 ## Step 2 — Duplicate guard + knock-out pre-scan
 
-Duplicate guard first (`_common.md` § Duplicate guard): page says "Applied" or the tracker already
-shows `applied`/pipeline → skip, never re-apply — the same role reached via LinkedIn and the company
-ATS is one application.
+Duplicate guard first (`_common.md` § Duplicate guard): `jev.mjs applied-guard --page <text>`
+or a visible "Applied" banner, or the tracker already shows `applied`/pipeline → skip,
+never re-apply — the same role reached via LinkedIn and the company ATS is one
+application (`jev.mjs same-role` decides ties).
 
-Cross-check form questions against the profile: years, degree, work authorization, location, salary
-(fill only when the range covers the profile band; else blank + flag). **If a hard requirement clearly
-fails: do NOT fill/submit** → `awaiting_user "knockout: <question>"` and stop.
+Cross-check with `jev.mjs knockout --profile <profile.json> --posting <role.json>
+[--form <form-text>]`: years, degree, work authorization, location, salary.
+**If `knockout:true` (any hit ≥ 0.7): do NOT fill/submit** → `awaiting_user "knockout:
+<hit>"` and stop. Uncertain hits → surface to the user, never auto-submit past them.
+Fill salary only when the range covers the profile band; else blank + flag.
 
 ## Step 3 — Fill
 
@@ -56,14 +63,29 @@ Fill everything through the browser helper (locators → fill → re-read to ver
 ref's quirks. Resume comes from `cv.stored_path || cv.path` — upload it, then re-verify the fields the
 portal autofills from it.
 
+**Guided loop (required for form steps):** do not pick controls by guessing. Each cycle:
+
+    node <browser> decide --goal "complete and submit the application for <title> at <company>: <remaining asks>"
+    node <browser> do <index> <click|fill|select> [value]
+
+`decide` snapshots the page, builds the observed action space, and has Jev pick `operation` +
+`target` (the snapshot index). Execute the exact target with `do`; re-`decide` after every page
+change. `TYPE_TEXT` values come from the profile / answer bank — never invented. `operation: DONE`
+requires visible evidence; `BLOCKED` → `awaiting_user` with what is missing. Three no-change
+non-wait actions in a row → stop as blocked. Details: `portals/_common.md` § Deciding what to click
+(jev-browser loop). Raw `snap`/`click`/`fill` remain the fallback when the helper or Jev is down.
+
 ### Answer bank — check before you ever block or guess
 
 For any question not answerable from the profile or CV, check the stored answers first:
 
     node <tracker> qa get "<question text>"
+    node <jev> qa-match --question "<question>" --answers <answers.json>
 
-- Match loosely (strip punctuation, case-insensitive). A hit → fill it (also for equivalent questions
-  on other portals: notice period, sponsorship, "why this role", "how did you hear", etc.).
+- `qa-match` (Choice over the answer bank, `match_index:-1` below 0.5 confidence) beats
+  loose string matching — use it when several stored answers could fit (notice period,
+  sponsorship, "why this role", "how did you hear", etc.).
+- A hit → fill it (also for equivalent questions on other portals).
 - No hit and the field is required → `queue set <queueId> awaiting_user "QA: <exact question>"` (one
   question per block) and stop. Save the user's answer back with `qa set` so it's never asked again.
 - No hit and the field is optional → leave blank. Never fabricate.
@@ -84,7 +106,14 @@ For any question not answerable from the profile or CV, check the stored answers
 
 ## Step 5 — Record the outcome
 
-On successful submit:
+After submit, verify before completing:
+
+    node <jev> verify-submit --page <confirmation-text> --role <role.json>
+
+`confirmed:true` (≥ 0.8) → complete. Ambiguous (0.4–0.8) → `queue set <queueId>
+awaiting_user "unconfirmed submit: <page evidence>"`, do NOT mark applied.
+
+On verified submit:
 
     node <tracker> queue complete <roleId> <queueId> "submitted (<portal>)"
 
