@@ -27,10 +27,12 @@ and a live-verified survey of public ATS JSON APIs ([skills/job-finder/reference
 | Change | Where | What it saves |
 |---|---|---|
 | `company-screen` (pre-sweep triage: product, hiring market, pay vs floor, domain fit, information) | `jev.mjs`, finder `SKILL.md` §2.0, cached via `company screen` | one Jev call replaces a board fetch + parse + per-role calls for staffing shops, wrong-geography employers, and below-floor pay |
+| `triage` (per-listing fetch/skip on title+location+snippet) | `jev.mjs`, finder `SKILL.md` §2.0 | posting fetches and rank calls for explicit location/track/level mismatches; deterministic onsite gate costs nothing |
+| `requirements` (must-haves + per-requirement evidence + gaps) | `jev.mjs`, finder `SKILL.md` §3 | opaque coverage becomes named gaps for the report, and `--max-gaps` can short-circuit fatal fits |
 | `salary-parse` (select-not-generate) | `jev.mjs`, finder `SKILL.md` §2.5 | structured base band (currency/min/max/unit) for the comp floor and the report's Salary column |
 | `rejection-reason` | `jev.mjs`, finder `SKILL.md` §5 | rejection emails become `mark rejected --reason` entries — the feedback that tunes ranking |
 | Dashboard fallback on ambiguous submit | `apply-to-jobs` §5 + `_common.md` | thin thank-you pages no longer block an otherwise-confirmed application |
-| `evals/run-company-screen.mjs` (7 live cases) | `evals/` | regression bar for the new triage |
+| Live evals: `run-company-screen.mjs` (7), `run-triage.mjs` (6) | `evals/` | regression bars for both gates |
 
 Design notes: verdicts compose in code from atomic Nouls (composite scoring); `enough_information`
 routes unknown companies to `maybe` first so a false skip can never hide a company; screens are dated

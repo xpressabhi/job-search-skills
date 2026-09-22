@@ -343,6 +343,67 @@ function parseSalaryRaw(raw, context = '') {
   return { currency, min, max, unit };
 }
 
+// Listing triage verdict, composed in code. Only explicit mismatches skip;
+// uncertainty fetches (a thin listing must never hide a role).
+function triageVerdict(a) {
+  const n = (id) => a[id]?.noul;
+  const loc = n('location_ok'), track = n('track_ok'), level = n('level_ok'), stack = n('stack_signal');
+  if (loc !== undefined && loc <= NO) return { verdict: 'skip', reasons: [`location not eligible (${loc.toFixed(2)})`] };
+  if (track !== undefined && track <= NO) return { verdict: 'skip', reasons: [`track mismatch (${track.toFixed(2)})`] };
+  if (level !== undefined && level <= NO) return { verdict: 'skip', reasons: [`level mismatch (${level.toFixed(2)})`] };
+  const reasons = [];
+  if (stack !== undefined && stack <= NO) reasons.push(`stack signal weak (${stack.toFixed(2)})`);
+  for (const [id, label, v] of [['location', 'location', loc], ['track', 'track', track], ['level', 'level', level]]) {
+    if (v !== undefined && v > NO && v < YES) reasons.push(`${label} uncertain (${v.toFixed(2)})`);
+  }
+  const uncertain = [loc, track, level].some((v) => v !== undefined && v > NO && v < YES);
+  return { verdict: uncertain ? 'maybe' : 'fetch', reasons };
+}
+
+// Requirement span finder for the requirements command: code locates
+// requirement-like lines, Jev judges each. Deterministic, no model call.
+function requirementCandidates(text, cap = 12) {
+  const lines = String(text || '')
+    .split(/\r?\n|•|·|‣|▪|●|○|\u2022/)
+    .map((s) => s.replace(/\s+/g, ' ').replace(/^[-*–—]\s*/, '').trim())
+    .filter(Boolean);
+  const scored = [];
+  for (const line of lines) {
+    if (line.length < 25 || line.length > 400) continue;
+    let score = 0;
+    if (/\b(must|required|requirement|proficien|experience (with|in)|expertise|strong|deep|hands-on|knowledge of|familiar|ability to|minimum)\b/i.test(line)) score += 2;
+    if (/\b(\d+\+?\s*years|bachelor|master|degree|phd)\b/i.test(line)) score += 1;
+    if (/^(we|our|about|why|benefit|perk|equal opportunity|compensation|salary|location|hybrid|remote|apply|join)\b/i.test(line)) score -= 2;
+    if (score > 0) scored.push({ text: line, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const seen = new Set();
+  const out = [];
+  for (const s of scored) {
+    const k = s.text.toLowerCase().slice(0, 80);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s.text);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+// Compose the requirement verdict from per-span answers (must_i + evidence_i).
+function composeRequirements(items, answers) {
+  const rows = items.map((text, i) => ({
+    text,
+    must: (answers[`must_${i}`]?.noul ?? 0) >= YES,
+    evidence: answers[`evidence_${i}`]?.score ?? 0,
+  }));
+  const required = rows.filter((r) => r.must);
+  const gaps = required.filter((r) => r.evidence < 2).map((r) => r.text);
+  const coverage = required.length
+    ? Math.round((required.reduce((s, r) => s + r.evidence, 0) / (3 * required.length)) * 1000) / 1000
+    : null;
+  return { coverage, must_count: required.length, gaps, must_haves: rows };
+}
+
 // Low-yield companies from the tracker's own history: 3+ applications,
 // none ever past `applied`. Same rule as tracker.mjs lowYieldCompanies.
 function lowYieldSet(homeDir) {
@@ -664,6 +725,48 @@ const Q = {
       },
     },
   }),
+  // Listing triage: cheap per-listing judgment on title/location/snippet, run
+  // before fetching full postings. Silent/ambiguous listings answer yes so a
+  // thin listing never hides a role; only explicit mismatches skip.
+  triage: () => ({
+    location_ok: {
+      type: 'noul',
+      instructions: 'Given `listing.location` and `listing.mode`, can this role hire the candidate (countries `candidate.countries`, cities `candidate.cities`, remote scope `candidate.remote_scope`)? Answer yes when the listing is silent or ambiguous — only an explicit restriction to another geography (e.g. "Remote - US", "must be authorized in Canada") is a no.',
+      criteria: {
+        true: 'Candidate market, eligible remote scope, or no location signal at all',
+        false: 'Explicitly restricted to a geography the candidate cannot work from',
+      },
+    },
+    track_ok: {
+      type: 'noul',
+      instructions: 'Is `listing.title` on the candidate track in `candidate.titles` — an IC engineering role? People management (Engineering Manager, Director), sales/quota, or non-engineering functions fail.',
+      criteria: {
+        true: 'IC engineering title matching the candidate track',
+        false: 'Management, sales, or a different function',
+      },
+    },
+    level_ok: {
+      type: 'noul',
+      instructions: 'Does `listing.title` (and `listing.snippet` when present) fall within the candidate band in `candidate` (seniority, years_experience)? Explicitly junior/mid rungs (associate, engineer II/III, junior) or clearly senior-management rungs (director/VP/head-of) fail; a title with no level signal passes.',
+      criteria: {
+        true: 'Within about one level of the candidate band, or no level signal',
+        false: 'Explicitly two or more levels below or above the candidate band',
+      },
+    },
+    stack_signal: {
+      type: 'noul',
+      instructions: 'Does `listing.title` (and `listing.snippet` when present) suggest work in the candidate\'s stack or domains (`candidate.skills`, `candidate.industries`, `candidate.titles`) — frontend/full-stack, AI agents/MCP/LLM, developer platforms/DX?',
+      criteria: {
+        true: 'Title/snippet points at a candidate stack or domain',
+        false: 'A different discipline (hardware, data engineering only, security only, mobile-only)',
+      },
+    },
+  }),
+  // Requirement extraction: code finds requirement spans, Jev judges each for
+  // must-have status and candidate evidence, code composes the gap list.
+  requirements: () => ({
+    // Question ids are generated per span in the command (must_0..n, evidence_0..n).
+  }),
   // Rejection emails/pages are the tracker's missing feedback signal: a reason
   // classification feeds `mark rejected --reason`, which tunes future ranking.
   rejectionReason: () => ({
@@ -962,6 +1065,97 @@ async function cmdRejectionReason(opts) {
   return { reason, is_rejection: ans.choice !== 'none', confidence: ans.confidence, model: data.model };
 }
 
+// Per-listing triage, run on board rows before fetching full postings. The
+// deterministic onsite gate fires first (free); Jev judges the rest.
+async function cmdTriage(opts) {
+  const profile = asJson(readOpt(opts['--profile']), '--profile');
+  const listings = asJson(readOpt(opts['--listings']), '--listings');
+  if (!Array.isArray(listings)) fail('--listings must be a JSON array');
+  const candidate = redactProfile(profile);
+  const results = await pMap(listings, 4, async (l) => {
+    const base = { id: l.id ?? null, company: l.company || '', title: l.title || '', url: l.url || '' };
+    const gateHit = onsiteGate(candidate, { mode: l.mode || '', location: l.location || '' });
+    if (gateHit) return { ...base, verdict: 'skip', reasons: [gateHit], deterministic: true };
+    const state = {
+      candidate,
+      listing: { title: l.title || '', company: l.company || '', location: l.location || '',
+        mode: l.mode || '', snippet: trunc(l.snippet || l.description || '', 800) },
+    };
+    try {
+      const data = await systemOne(state, Q.triage(), { model: opts['--model'] });
+      const { verdict, reasons } = triageVerdict(data.answers);
+      return { ...base, verdict, reasons,
+        dimensions: Object.fromEntries(Object.entries(data.answers).map(([k, v]) => [k, Math.round(v.noul * 100) / 100])) };
+    } catch (err) {
+      return { ...base, verdict: 'maybe', reasons: [`jev error: ${err.message || err}`] };
+    }
+  });
+  const order = { skip: 0, maybe: 1, fetch: 2 };
+  results.sort((a, b) => order[a.verdict] - order[b.verdict]);
+  const limit = Number(opts['--limit'] || 0);
+  return { model: DEFAULT_MODEL, count: results.length, listings: limit > 0 ? results.slice(0, limit) : results };
+}
+
+// Requirement extraction + evidence scoring per posting: code finds spans,
+// Jev judges must-have status and candidate evidence, code composes gaps.
+async function cmdRequirements(opts) {
+  const profile = opts['--cv'] ? null : asJson(readOpt(opts['--profile']), '--profile');
+  const cvRaw = opts['--cv'] ? readOpt(opts['--cv']) : null;
+  let candidate;
+  if (cvRaw) {
+    let cv; try { cv = JSON.parse(cvRaw); } catch { cv = { text: cvRaw }; }
+    candidate = cv && typeof cv === 'object' && (cv.skills || cv.years_experience !== undefined)
+      ? { years_experience: cv.years_experience ?? null, headline: cv.headline || cv.text?.slice(0, 200) || '',
+          seniority: cv.seniority || [], titles: cv.titles || [], skills: cv.skills || [], industries: cv.industries || [] }
+      : { text: trunc(typeof cv.text === 'string' ? cv.text : String(cvRaw)) };
+  } else {
+    if (!profile) fail('missing --profile or --cv');
+    candidate = redactProfile(profile);
+  }
+  const postingRaw = readOpt(opts['--posting']);
+  const posting = typeof postingRaw === 'string' && postingRaw.trimStart()[0] !== '{'
+    ? { title: '', company: '', posting_text: postingRaw } : asJson(postingRaw, '--posting');
+  const text = trunc(posting.posting_text || posting.text || '');
+  const items = requirementCandidates(text, Number(opts['--max-items'] || 12));
+  if (!items.length) {
+    return { coverage: null, must_count: 0, gaps: [], must_haves: [], confidence: null,
+      model: null, note: 'no requirement-like spans found in the posting text' };
+  }
+  const questions = {};
+  items.forEach((t, i) => {
+    questions[`must_${i}`] = {
+      type: 'noul',
+      instructions: `Is requirement \`requirements.items[${i}].text\` a MUST-HAVE requirement for \`posting\` — stated as required, or clearly essential to the role — rather than a nice-to-have, benefit, or boilerplate?`,
+      criteria: {
+        true: 'Stated as required/essential (or a core responsibility the role cannot be done without)',
+        false: 'Nice-to-have, preferred, benefit, company boilerplate, or unrelated line',
+      },
+    };
+    questions[`evidence_${i}`] = {
+      type: 'score',
+      instructions: `How much of requirement \`requirements.items[${i}].text\` is evidenced in \`candidate\` (skills, years_experience, headline, titles, industries)? Judge only this requirement.`,
+      criteria: [
+        'Not evidenced at all',
+        'Minority/adjacent evidence only',
+        'Mostly evidenced; small learnable gap',
+        'Directly evidenced in the candidate profile',
+      ],
+    };
+  });
+  const state = {
+    candidate,
+    posting: { title: posting.title || '', company: posting.company || '', posting_text: text },
+    requirements: { items: items.map((t, i) => ({ id: `r${i}`, text: t })) },
+  };
+  const data = await systemOne(state, questions, { model: opts['--model'] });
+  const composed = composeRequirements(items, data.answers);
+  const maxGaps = opts['--max-gaps'] !== undefined ? Number(opts['--max-gaps']) : null;
+  const out = { ...composed, confidence: Math.min(...items.map((_, i) => data.answers[`evidence_${i}`]?.confidence ?? 0)),
+    model: data.model };
+  if (maxGaps !== null && Number.isFinite(maxGaps)) out.shortlist_ok = composed.gaps.length <= maxGaps;
+  return out;
+}
+
 function cmdSelftest() {
   const checks = [];
   const ok = (name, cond) => checks.push({ name, pass: Boolean(cond) });
@@ -1054,8 +1248,31 @@ function cmdSelftest() {
   ok('salary parse single value doubles as band', (() => {
     const p = parseSalaryRaw('£90,000', 'per annum'); return p.min === 90000 && p.max === 90000;
   })());
+  // Listing triage verdict composition.
+  const triageDims = { location_ok: { noul: 0.9 }, track_ok: { noul: 0.9 }, level_ok: { noul: 0.85 }, stack_signal: { noul: 0.8 } };
+  ok('triage: clean listing -> fetch', triageVerdict(triageDims).verdict === 'fetch');
+  ok('triage: US-only location -> skip', triageVerdict({ ...triageDims, location_ok: { noul: 0.05 } }).verdict === 'skip');
+  ok('triage: manager title -> skip', triageVerdict({ ...triageDims, track_ok: { noul: 0.1 } }).verdict === 'skip');
+  ok('triage: junior title -> skip', triageVerdict({ ...triageDims, level_ok: { noul: 0.2 } }).verdict === 'skip');
+  ok('triage: uncertain location -> maybe', triageVerdict({ ...triageDims, location_ok: { noul: 0.5 } }).verdict === 'maybe');
+  ok('triage: weak stack flags fetch', triageVerdict({ ...triageDims, stack_signal: { noul: 0.1 } }).reasons.some((r) => /stack signal weak/.test(r)));
+  // Requirement span finder + composition.
+  const reqText = ['About us: we are a leading company.', 'Requirements:', 'Must have 8+ years of experience with TypeScript and React.',
+    'Experience with distributed systems and Kubernetes is required.', 'Nice to have: Rust.'].join('\n');
+  const spans = requirementCandidates(reqText);
+  ok('requirement spans: finds must-haves, drops boilerplate',
+    spans.some((s) => /TypeScript and React/.test(s)) && !spans.some((s) => /About us/.test(s)));
+  ok('requirement spans dedupe', requirementCandidates(Array.from({ length: 5 }, () => 'Must have strong TypeScript experience with React').join('\n')).length === 1);
+  ok('requirement spans cap at 12',
+    requirementCandidates(Array.from({ length: 20 }, (_, i) => `Must have strong experience with tool${i} and platform${i} engineering`).join('\n')).length === 12);
+  const composed = composeRequirements(['Must have TypeScript', 'Must have Kubernetes', 'Nice to have Rust'], {
+    must_0: { noul: 0.95 }, evidence_0: { score: 3 }, must_1: { noul: 0.9 }, evidence_1: { score: 0 }, must_2: { noul: 0.1 }, evidence_2: { score: 0 },
+  });
+  ok('requirements: gaps = unevidenced must-haves only',
+    composed.gaps.length === 1 && /Kubernetes/.test(composed.gaps[0]) && composed.must_count === 2);
+  ok('requirements: coverage over must-haves', Math.abs(composed.coverage - 0.5) < 1e-9);
   // Question shapes.
-  const allQ = { ...Q.eligibility({}), ...Q.fit(), ...Q.liveness(), ...Q.redflags(), ...Q.knockout(), ...Q.verifySubmit(), ...Q.sameRole(), ...Q.appliedGuard(), ...Q.companyScreen(), ...Q.salaryParse(), ...Q.rejectionReason() };
+  const allQ = { ...Q.eligibility({}), ...Q.fit(), ...Q.liveness(), ...Q.redflags(), ...Q.knockout(), ...Q.verifySubmit(), ...Q.sameRole(), ...Q.appliedGuard(), ...Q.companyScreen(), ...Q.salaryParse(), ...Q.rejectionReason(), ...Q.triage() };
   ok('all questions have type+instructions', Object.values(allQ).every((q) => q.type && q.instructions));
   ok('truncation caps state', trunc('x'.repeat(9000)).length < 7000);
   const failed = checks.filter((c) => !c.pass);
@@ -1095,6 +1312,8 @@ const HELP = `jev.mjs — Jev judgments for job-finder + apply-to-jobs (needs TY
   same-role --a A.json --b B.json          LinkedIn-vs-ATS duplicate check
   applied-guard --page T                   already-applied banner check
   company-screen --profile P --company C [--context T]   sweep|maybe|skip before fetching a board
+  triage --profile P --listings L.json     fetch|maybe|skip per listing before fetching postings
+  requirements --profile P --posting J [--cv C] [--max-gaps N]   must-haves + gaps + coverage
   salary-parse --posting J                 published base salary: raw + parsed band
   rejection-reason --text T                location|comp|level|stack|domain|track|sponsorship|unknown
   selftest                                 offline checks (no key needed)
@@ -1109,7 +1328,7 @@ async function main() {
     redflags: cmdRedflags, knockout: cmdKnockout, 'qa-match': cmdQaMatch,
     'verify-submit': cmdVerifySubmit, 'same-role': cmdSameRole, 'applied-guard': cmdAppliedGuard,
     'company-screen': cmdCompanyScreen, 'salary-parse': cmdSalaryParse,
-    'rejection-reason': cmdRejectionReason,
+    'rejection-reason': cmdRejectionReason, triage: cmdTriage, requirements: cmdRequirements,
   }[cmd];
   if (!cmd || cmd === 'help' || cmd === '--help') { console.log(HELP); return; }
   if (cmd === 'selftest') { cmdSelftest(); return; }

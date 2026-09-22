@@ -19,6 +19,8 @@ inline JSON/text. Output is JSON on stdout.
 |---|---|---|
 | `eligibility --profile P --posting J` | remote/timezone/payroll/auth/relocation → `eligible`/`unverified`/`ineligible` + reasons (deterministic onsite gate first, no call when it fires) | finder §2.4, playbook §9 |
 | `company-screen --profile P --company C [--context T]` | pre-sweep company triage → `sweep`/`maybe`/`skip` + dimensions (product, hiring market, pay vs floor, domain fit, information) | finder §2.0 |
+| `triage --profile P --listings L.json` | per-listing fetch/skip before posting fetches → `fetch`/`maybe`/`skip` + dimensions (deterministic onsite gate first) | finder §2.0 |
+| `requirements --profile P --posting J [--cv C] [--max-gaps N]` | must-haves + per-requirement evidence + `gaps` + `coverage` (code finds spans, Jev judges each) | finder §3 |
 | `salary-parse --posting J` | published base salary: code finds money spans, Jev selects the base one, code parses band/unit | finder §2.5, §4 |
 | `rejection-reason --text T` | rejection cause → `location`/`comp`/`level`/`stack`/`domain`/`track`/`sponsorship`/`unknown`/none | finder §5 |
 | `fit --cv C --posting J` | coverage/stack/seniority/domain scores + composite 0..1 + capped `strong`/`good`/`partial`/`weak` | finder §2.6, §3 |
@@ -98,6 +100,28 @@ per-role calls for companies that cannot yield eligible roles at all. Dimensions
 Cache verdicts with `tracker.mjs company screen <name> --verdict V --reason R`; list them with
 `company screen --list` and re-screen entries older than 30 days. Screens are advisory — the per-role
 filters still decide every role.
+
+## Listing triage (finder §2.0)
+
+`triage` runs on board listing rows (title, location, mode, snippet) before full postings are fetched.
+Dimensions (all Noul): `location_ok`, `track_ok`, `level_ok`, `stack_signal`. Code composes:
+
+- deterministic onsite gate first (office-bound outside the candidate cities, relocation rejected) →
+  `skip`, no Jev call;
+- `location_ok` ≤ 0.3, `track_ok` ≤ 0.3, or `level_ok` ≤ 0.3 → `skip`;
+- any of those uncertain (0.3–0.7) → `maybe`;
+- otherwise `fetch`; a weak `stack_signal` (≤ 0.3) is a flag, never a skip.
+
+Silent or ambiguous listings answer yes, so a thin listing never hides a role. `maybe` still fetches —
+it just flags the uncertainty.
+
+## Requirement gaps (finder §3)
+
+`requirements` is extraction + evidence: code finds requirement-like spans (bullets, "must have",
+"experience with", years/degree lines), Jev judges each span for must-have status (`must_i`) and
+candidate evidence (`evidence_i`, 0–3), and code composes `must_haves`, `gaps` (must-haves with
+evidence < 2) and `coverage`. Use `--max-gaps N` for a `shortlist_ok` boolean before rank. Pass
+`--cv` when the profile omits education/certifications — the CV is canonical and scores those spans.
 
 ## Salary extraction (finder §2.5)
 

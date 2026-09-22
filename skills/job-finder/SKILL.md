@@ -59,6 +59,15 @@ anyway but expect noise. `sweep` → fetch. Pass `--context` (locations, what th
 signals) whenever the company is not widely known — without it unknown companies route to `maybe`.
 Screens are advisory and dated, never a substitute for the per-role filters below.
 
+**Listing triage — before fetching full postings.** Triage a board's listing rows (title, location,
+mode, snippet) so only plausible roles cost a posting fetch and a rank call:
+
+    jev.mjs triage --profile <profile.json> --listings <listings.json>
+
+`skip` → don't fetch the posting (explicit location/track/level mismatch; the onsite gate fires
+deterministically and costs nothing). `maybe` → fetch, flagged. `fetch` → fetch. Only explicit
+mismatches skip — a thin listing never hides a role.
+
 Every candidate passes, in order (free filters before paid judgments — deterministic
 drops never spend a Jev call):
 
@@ -107,6 +116,13 @@ Only `interested` roles are ever re-shown, so the report is the user's one shot 
 role — rank honestly. `good`/`strong` level+stack matches fill the table; `partial` roles
 go in one flagged footer line ("possible but not recommended") or nowhere. Red-flag hits
 (`jev.mjs redflags`) override the order entirely, however good the math looks.
+
+For every role that reaches the report or the footer, name the gap instead of hiding it:
+`jev.mjs requirements --profile P --posting J [--cv C] [--max-gaps N]` returns the posting's
+must-haves with candidate evidence, a `coverage` number, and `gaps` (must-haves the CV does not
+evidence). Use the gap text in the report's "Why it stands out"/footer line, and `--max-gaps N` to
+short-circuit a role whose must-have gaps are fatal before spending a rank call. Pass `--cv` when the
+profile omits education or certifications — the CV is canonical.
 
 ## Step 4 — Deliver a ranked report
 

@@ -1,0 +1,37 @@
+{
+  "comment": "Listing triage eval: explicit mismatches must skip, clean fits must fetch, ambiguous listings may fetch or maybe. Run: TYPESAFE_API_KEY=... node evals/run-triage.mjs",
+  "profile": {
+    "identity": { "years_experience": 16, "headline": "Staff Software Engineer · AI agent platforms, MCP, agentic systems · React/TypeScript" },
+    "targets": {
+      "seniority": ["Staff", "Principal", "Senior"],
+      "titles": ["Staff Frontend Engineer", "Staff AI Engineer (Agentic Systems)", "Forward Deployed Engineer"],
+      "skills": ["React", "TypeScript", "Node.js", "Python", "AI agents", "MCP", "LangChain"],
+      "industries": ["AI/agent platforms", "developer tools", "SaaS"]
+    },
+    "search": {
+      "modes": ["remote", "hybrid", "onsite"], "cities": ["Hyderabad"], "countries": ["India"],
+      "remote_scope": ["worldwide", "APAC", "India-eligible"], "relocation": false,
+      "salary": { "currency": "INR", "full_time_min": 7500000 }
+    },
+    "apply": { "work_authorization": "Indian citizen", "sponsorship_required": false, "willing_to_relocate": false }
+  },
+  "cases": [
+    { "id": "skip-us-only", "expect": ["skip"],
+      "listing": { "company": "Acme", "title": "Staff Software Engineer", "location": "Remote - US", "mode": "remote",
+        "snippet": "US work authorization required. React and TypeScript." } },
+    { "id": "skip-manager", "expect": ["skip"],
+      "listing": { "company": "Acme", "title": "Engineering Manager, Platform", "location": "Hyderabad, India", "mode": "onsite",
+        "snippet": "Lead a team of 8 engineers." } },
+    { "id": "skip-junior", "expect": ["skip"],
+      "listing": { "company": "Acme", "title": "Software Engineer II", "location": "Hyderabad, India", "mode": "hybrid",
+        "snippet": "React and Node.js services." } },
+    { "id": "skip-foreign-onsite", "expect": ["skip"],
+      "listing": { "company": "Acme", "title": "Staff Frontend Engineer", "location": "Bengaluru, India", "mode": "onsite",
+        "snippet": "React design systems." } },
+    { "id": "fetch-good-fit", "expect": ["fetch", "maybe"],
+      "listing": { "company": "Acme AI", "title": "Senior Software Engineer, AI Platform", "location": "Hyderabad, India", "mode": "hybrid",
+        "snippet": "Build agentic AI systems with MCP, TypeScript and Python. React front end." } },
+    { "id": "fetch-vague-title", "expect": ["fetch", "maybe"],
+      "listing": { "company": "Acme", "title": "Member of Technical Staff", "location": "Remote", "mode": "remote", "snippet": "" } }
+  ]
+}
