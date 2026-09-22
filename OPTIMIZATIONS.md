@@ -22,6 +22,20 @@ and a live-verified survey of public ATS JSON APIs ([skills/job-finder/reference
 
 ---
 
+## Implemented 2026-09-22 — Jev pre-screening + extraction
+
+| Change | Where | What it saves |
+|---|---|---|
+| `company-screen` (pre-sweep triage: product, hiring market, pay vs floor, domain fit, information) | `jev.mjs`, finder `SKILL.md` §2.0, cached via `company screen` | one Jev call replaces a board fetch + parse + per-role calls for staffing shops, wrong-geography employers, and below-floor pay |
+| `salary-parse` (select-not-generate) | `jev.mjs`, finder `SKILL.md` §2.5 | structured base band (currency/min/max/unit) for the comp floor and the report's Salary column |
+| `rejection-reason` | `jev.mjs`, finder `SKILL.md` §5 | rejection emails become `mark rejected --reason` entries — the feedback that tunes ranking |
+| Dashboard fallback on ambiguous submit | `apply-to-jobs` §5 + `_common.md` | thin thank-you pages no longer block an otherwise-confirmed application |
+| `evals/run-company-screen.mjs` (7 live cases) | `evals/` | regression bar for the new triage |
+
+Design notes: verdicts compose in code from atomic Nouls (composite scoring); `enough_information`
+routes unknown companies to `maybe` first so a false skip can never hide a company; screens are dated
+and re-screened after 30 days; skips are advisory — the per-role filters still decide every role.
+
 ## 1. Quality — the skill layer
 
 **Strengths (no action):** SKILL.md files are well under the 500-line budget (97 and 128 lines),

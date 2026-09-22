@@ -110,7 +110,10 @@ After submit, verify before completing:
 
     node <jev> verify-submit --page <confirmation-text> --role <role.json>
 
-`confirmed:true` (≥ 0.8) → complete. Ambiguous (0.4–0.8) → `queue set <queueId>
+`confirmed:true` (≥ 0.8) → complete. Ambiguous (0.4–0.8) → before recording `awaiting_user`, check
+the portal's application dashboard (e.g. "My Applications", "Track your application") and re-run
+`verify-submit` on that page text: a listed application with a submitted status confirms the submit
+even when the thank-you page was too thin to score. Still ambiguous → `queue set <queueId>
 awaiting_user "unconfirmed submit: <page evidence>"`, do NOT mark applied.
 
 On verified submit:

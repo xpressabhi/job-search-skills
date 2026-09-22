@@ -111,7 +111,10 @@ coordinate guessing and makes each action auditable (decisions are appended to
 
 - Clean form (no captcha/consent/login/knockout) → click the final Submit, then
   `jev.mjs verify-submit --page <text> --role <role>` — only `confirmed:true` completes
-  (`queue complete`); ambiguous → `awaiting_user` with the page evidence.
+  (`queue complete`). Ambiguous (0.4–0.8): thin thank-you pages score low, so open the portal's
+  application dashboard ("My Applications"/"Track your application") and re-run `verify-submit` on
+  that text — a listed application with a submitted status confirms it. Still ambiguous →
+  `awaiting_user` with the page evidence.
 - Blocked → set the queue row to `awaiting_user` with an exact, actionable message and **stop**
   (single: finish; batch: stop the whole run):
 

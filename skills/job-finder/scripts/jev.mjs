@@ -265,6 +265,84 @@ function fastRelocation(candidate, role) {
   return null;
 }
 
+// Company pre-screen verdict, composed in code from Jev dimensions. Hard skips
+// need a confident signal; thin information routes to `maybe` (sweep to verify)
+// rather than trusting a guess. Advisory, not final: cached with a date and
+// re-screenable, and the sweep still filters roles on their own merits.
+function companyScreenVerdict(a) {
+  const n = (id) => a[id]?.noul;
+  const dimensions = {
+    product_company: n('product_company'),
+    hires_in_candidate_market: n('hires_in_candidate_market'),
+    pays_below_floor: n('pays_below_floor'),
+    candidate_fit: n('candidate_fit'),
+    enough_information: n('enough_information'),
+  };
+  // Thin information routes to `maybe` first: without enough context the other
+  // dimensions are guesses, and a false skip hides a company from every future
+  // sweep. `maybe` still fetches the board — it just flags the uncertainty.
+  const info = n('enough_information');
+  if (info !== undefined && info <= NO) {
+    return { verdict: 'maybe', reasons: ['thin company information — verify before spending sweep effort'], dimensions };
+  }
+  const pc = n('product_company');
+  if (pc !== undefined && pc <= NO) {
+    return { verdict: 'skip', reasons: [`non-product company — staffing/consultancy/outsourcing (${pc.toFixed(2)})`], dimensions };
+  }
+  const hires = n('hires_in_candidate_market');
+  if (hires !== undefined && hires <= NO) {
+    return { verdict: 'skip', reasons: [`no hiring path in the candidate market (${hires.toFixed(2)})`], dimensions };
+  }
+  const pay = n('pays_below_floor');
+  if (pay !== undefined && pay >= YES) {
+    return { verdict: 'skip', reasons: [`pay evidence below the floor (${pay.toFixed(2)})`], dimensions };
+  }
+  const reasons = [];
+  const fit = n('candidate_fit');
+  if (fit !== undefined && fit <= NO) reasons.push(`domain fit low (${fit.toFixed(2)})`);
+  if (pay !== undefined && pay > NO && pay < YES) reasons.push(`pay unverified (${pay.toFixed(2)})`);
+  if (hires !== undefined && hires > NO && hires < YES) reasons.push(`hiring geography unverified (${hires.toFixed(2)})`);
+  return { verdict: 'sweep', reasons, dimensions };
+}
+
+// Money-span finder for salary-parse: code locates candidates, Jev selects the
+// base-salary one, code parses the number. Deterministic, no model call.
+const MONEY_RE = /(?:[₹$€£]\s?\d[\d,.]*(?:\s?(?:k|lakhs?|lpa|l)?)?(?:\s?(?:-|–|to)\s?[₹$€£]?\s?\d[\d,.]*(?:\s?(?:k|lakhs?|lpa|l)?)?)?)/gi;
+function salaryCandidates(text, cap = 12) {
+  const out = [];
+  const s = String(text || '');
+  MONEY_RE.lastIndex = 0;
+  let m;
+  while ((m = MONEY_RE.exec(s)) && out.length < cap) {
+    const start = Math.max(0, m.index - 90);
+    const end = Math.min(s.length, m.index + m[0].length + 90);
+    out.push({ raw: m[0].replace(/\s+/g, ' ').trim(), context: s.slice(start, end).replace(/\s+/g, ' ') });
+  }
+  return out;
+}
+
+// Conservative number parse for a selected salary span. Returns null fields
+// rather than guessing when the unit is ambiguous; callers use the raw string.
+function parseSalaryRaw(raw, context = '') {
+  const s = `${raw} ${context}`.toLowerCase();
+  const currency = /₹|\binr\b|rupee|lpa|lakh/.test(s) ? 'INR'
+    : /\$|\busd\b/.test(s) ? 'USD'
+    : /€|\beur\b/.test(s) ? 'EUR'
+    : /£|\bgbp\b/.test(s) ? 'GBP' : '';
+  const nums = (raw.match(/\d[\d,.]*/g) || []).map((x) => Number(x.replace(/,/g, '')))
+    .filter((x) => Number.isFinite(x) && x > 0);
+  if (!nums.length) return { currency, min: null, max: null, unit: 'unknown' };
+  const lakh = /lpa|lakh|\d\s?l\b/.test(s);
+  const thousand = /\d\s?k\b/.test(s) && !lakh;
+  const monthly = /per month|monthly|\/month|p\.?m\.?\b/.test(s);
+  const annual = /per annum|annual|annually|per year|\/yr|yearly|\blpa\b/.test(s);
+  const mult = lakh ? 100000 : thousand ? 1000 : 1;
+  const min = nums[0] * mult;
+  const max = (nums[1] ?? nums[0]) * mult;
+  const unit = monthly ? 'monthly' : annual || lakh || thousand ? 'annual' : 'unknown';
+  return { currency, min, max, unit };
+}
+
 // Low-yield companies from the tracker's own history: 3+ applications,
 // none ever past `applied`. Same rule as tracker.mjs lowYieldCompanies.
 function lowYieldSet(homeDir) {
@@ -530,6 +608,81 @@ const Q = {
       },
     },
   }),
+  // Pre-sweep company triage: one call replaces a board fetch + parse + per-role
+  // calls for companies that cannot yield eligible roles at all.
+  companyScreen: () => ({
+    product_company: {
+      type: 'noul',
+      instructions: 'Is `company.name` (with `company.context` when present) a product company — it builds and sells its own software product — rather than a staffing agency, IT consultancy, outsourcing/bodyshop, or legacy-maintenance vendor?',
+      criteria: {
+        true: 'Owns a software product; product engineering is its core business',
+        false: 'Staffing/recruiting agency, consultancy, outsourcing vendor, or reseller of other companies\' engineers',
+      },
+    },
+    hires_in_candidate_market: {
+      type: 'noul',
+      instructions: 'Given the candidate countries `candidate.countries`, cities `candidate.cities`, and remote scope `candidate.remote_scope`, does `company` hire engineers for the candidate market — an office in a candidate city, an India/APAC entity, or explicit global/India/APAC remote hiring? Judge from `company.context` when it names locations; when context is silent, judge only companies whose hiring geography is reliably established.',
+      criteria: {
+        true: 'Office/entity in the candidate market, or explicit candidate-market/global remote hiring',
+        false: 'Hires only in other geographies (e.g. US-only, EU-only) with no candidate-market path',
+      },
+    },
+    pays_below_floor: {
+      type: 'noul',
+      instructions: 'Is there credible evidence that `company.name` pays engineers at the candidate\'s level below `candidate.salary_min` `candidate.salary_currency` (or the local-currency equivalent) in the candidate market? Answer yes only for a concrete signal — a known low-band employer in that market, a published band below the floor, or an outsourcing-rate model. Absent such a signal, answer no.',
+      criteria: {
+        true: 'Concrete below-floor pay signal for this market and level',
+        false: 'No credible below-floor signal (unknown pay, or known to pay at/above market)',
+      },
+    },
+    candidate_fit: {
+      type: 'noul',
+      instructions: 'Does `company.name` plausibly match the candidate\'s target industries `candidate.industries`, titles `candidate.titles`, and skills `candidate.skills` — e.g. AI/agent platforms, developer tools, SaaS product engineering?',
+      criteria: {
+        true: 'Product and domain align with the candidate targets',
+        false: 'Unrelated domain with no transferable product-engineering signal',
+      },
+    },
+    enough_information: {
+      type: 'noul',
+      instructions: 'Does `company` contain enough information to judge these questions about this company — either a non-empty `company.context` or a company well known enough that its product, hiring geography, and pay reputation are reliably established?',
+      criteria: {
+        true: 'Context provided, or a widely known company whose facts are reliably established',
+        false: 'Little or no context and not a company whose specifics are reliably known',
+      },
+    },
+  }),
+  // Salary extraction is select-not-generate: code finds money spans, Jev picks
+  // the one that is this role's base salary; code parses the number.
+  salaryParse: () => ({
+    base_salary: {
+      type: 'choice',
+      instructions: 'Which candidate in `salary.candidates` (each has `raw` and surrounding `context`) states the annual BASE salary or base-salary band for this role in `posting`? Choose the base pay for this position — not equity value, signing bonus, benefits/insurance amounts, recruiter fees, or a band belonging to a different role. Choose none when no candidate is the base salary.',
+      criteria: {
+        candidates: 'Placeholder replaced in code with one option per candidate',
+        none: 'No candidate states this role\'s base salary',
+      },
+    },
+  }),
+  // Rejection emails/pages are the tracker's missing feedback signal: a reason
+  // classification feeds `mark rejected --reason`, which tunes future ranking.
+  rejectionReason: () => ({
+    reason: {
+      type: 'choice',
+      instructions: 'Which single reason best explains the outcome in `outcome.text`? Pick the reason the employer or process actually signals — not a guess. Use unknown for a generic rejection with no concrete cause, and none when the text is not a rejection at all.',
+      criteria: {
+        location: { what: 'Location, geography, work authorization, or relocation is the stated or strongly implied blocker' },
+        comp: { what: 'Compensation or salary expectations named as the mismatch' },
+        level: { what: 'Seniority, level, or years-of-experience mismatch named' },
+        stack: { what: 'A specific skills or technology gap named' },
+        domain: { what: 'Industry or domain-experience gap named' },
+        track: { what: 'Role-track mismatch named (IC vs management, function change)' },
+        sponsorship: { what: 'Visa or sponsorship is the stated blocker' },
+        unknown: { what: 'A rejection with no concrete cause stated' },
+        none: { what: 'Not a rejection (interview invite, hold, general update)' },
+      },
+    },
+  }),
 };
 
 // ---------------------------------------------------------------- commands
@@ -746,6 +899,69 @@ async function cmdAppliedGuard(opts) {
   return { already_applied: data.answers.shows_applied.noul >= YES, noul: data.answers.shows_applied.noul, model: data.model };
 }
 
+// Pre-sweep company triage. Context is optional but strongly improves accuracy:
+// pass a careers-page/website snippet when the company is not widely known.
+async function cmdCompanyScreen(opts) {
+  const profile = asJson(readOpt(opts['--profile']), '--profile');
+  const companyRaw = readOpt(opts['--company']);
+  if (companyRaw === undefined) fail('missing --company');
+  const company = typeof companyRaw === 'string' && companyRaw.trimStart()[0] !== '{'
+    ? { name: companyRaw.trim(), context: '' }
+    : { name: String(companyRaw.name || '').trim(), context: String(companyRaw.context || '') };
+  if (!company.name) fail('--company needs a name');
+  const ctx = opts['--context'] ? trunc(asText(readOpt(opts['--context']), '--context'), 2500) : trunc(company.context, 2500);
+  const candidate = redactProfile(profile);
+  const state = { candidate, company: { name: company.name, context: ctx } };
+  const data = await systemOne(state, Q.companyScreen(), { model: opts['--model'] });
+  const { verdict, reasons, dimensions } = companyScreenVerdict(data.answers);
+  const round = (v) => (typeof v === 'number' ? Math.round(v * 100) / 100 : null);
+  return {
+    company: company.name, verdict, reasons,
+    dimensions: Object.fromEntries(Object.entries(dimensions).map(([k, v]) => [k, round(v)])),
+    confidences: Object.fromEntries(Object.entries(data.answers).map(([k, v]) => [k, v.confidence])),
+    context_used: Boolean(ctx), model: data.model,
+  };
+}
+
+// Select-not-generate salary extraction: code finds money spans, Jev picks the
+// base-salary one, code parses it. `none` when the posting publishes no base.
+async function cmdSalaryParse(opts) {
+  const postingRaw = readOpt(opts['--posting']);
+  const posting = typeof postingRaw === 'string' && postingRaw.trimStart()[0] !== '{'
+    ? { title: '', company: '', posting_text: postingRaw } : asJson(postingRaw, '--posting');
+  const text = trunc(posting.posting_text || posting.text || '');
+  const candidates = salaryCandidates(text);
+  if (!candidates.length) {
+    return { found: false, raw: null, currency: '', min: null, max: null, unit: 'unknown',
+      confidence: null, candidates: [], model: null, note: 'no money spans in the posting text' };
+  }
+  const criteria = Object.fromEntries(candidates.map((c, i) => [`c${i}`, `${c.raw} — ${c.context}`.slice(0, 300)]));
+  criteria.none = 'No candidate states this role\'s base salary';
+  const state = { posting: { title: posting.title || '', company: posting.company || '', posting_text: text },
+    salary: { candidates: candidates.map((c, i) => ({ id: `c${i}`, raw: c.raw, context: c.context })) } };
+  const data = await systemOne(state, { base_salary: { ...Q.salaryParse().base_salary, criteria } }, { model: opts['--model'] });
+  const ans = data.answers.base_salary;
+  const idx = ans.choice && ans.choice !== 'none' && ans.choice.startsWith('c') ? Number(ans.choice.slice(1)) : -1;
+  if (ans.confidence < 0.5 || idx < 0) {
+    return { found: false, raw: null, currency: '', min: null, max: null, unit: 'unknown',
+      confidence: ans.confidence, candidates: candidates.map((c) => c.raw), model: data.model };
+  }
+  const picked = candidates[idx];
+  const parsed = parseSalaryRaw(picked.raw, picked.context);
+  return { found: true, raw: picked.raw, ...parsed, confidence: ans.confidence,
+    candidates: candidates.map((c) => c.raw), model: data.model };
+}
+
+// Rejection feedback: classify the reason so `mark rejected --reason` can tune
+// ranking. Works on an email body, an ATS status page, or a recruiter note.
+async function cmdRejectionReason(opts) {
+  const text = trunc(asText(readOpt(opts['--text']), '--text'));
+  const data = await systemOne({ outcome: { text } }, Q.rejectionReason(), { model: opts['--model'] });
+  const ans = data.answers.reason;
+  const reason = ans.choice === 'none' ? null : ans.choice;
+  return { reason, is_rejection: ans.choice !== 'none', confidence: ans.confidence, model: data.model };
+}
+
 function cmdSelftest() {
   const checks = [];
   const ok = (name, cond) => checks.push({ name, pass: Boolean(cond) });
@@ -808,8 +1024,38 @@ function cmdSelftest() {
     fastRelocation(hydCand, { mode: 'on-site', location: 'Pune, India' }) === null);
   ok('fastRelocation defers when silent',
     fastRelocation(hydCand, { mode: '', location: '' }) === null);
+  // Company pre-screen verdict composition.
+  const sweepDims = { product_company: { noul: 0.9 }, hires_in_candidate_market: { noul: 0.85 },
+    pays_below_floor: { noul: 0.15 }, candidate_fit: { noul: 0.8 }, enough_information: { noul: 0.9 } };
+  ok('company-screen: product + market + info -> sweep',
+    companyScreenVerdict(sweepDims).verdict === 'sweep');
+  ok('company-screen: staffing -> skip',
+    companyScreenVerdict({ ...sweepDims, product_company: { noul: 0.05 } }).verdict === 'skip');
+  ok('company-screen: US-only hiring -> skip',
+    companyScreenVerdict({ ...sweepDims, hires_in_candidate_market: { noul: 0.1 } }).verdict === 'skip');
+  ok('company-screen: below-floor pay -> skip',
+    companyScreenVerdict({ ...sweepDims, pays_below_floor: { noul: 0.8 } }).verdict === 'skip');
+  ok('company-screen: thin information -> maybe',
+    companyScreenVerdict({ ...sweepDims, enough_information: { noul: 0.2 } }).verdict === 'maybe');
+  ok('company-screen: uncertain pay flags sweep',
+    companyScreenVerdict({ ...sweepDims, pays_below_floor: { noul: 0.5 } }).reasons.some((r) => /pay unverified/.test(r)));
+  // Salary span finder + parser.
+  ok('salary spans found in text',
+    salaryCandidates('Compensation: ₹75L - ₹90L per annum plus equity.').length === 1);
+  ok('salary span caps at 12', salaryCandidates(Array.from({ length: 30 }, () => '$100,000').join(' or ')).length === 12);
+  ok('salary parse INR lakh -> annual', (() => {
+    const p = parseSalaryRaw('₹75L - ₹90L', 'per annum'); return p.currency === 'INR' && p.min === 7500000 && p.max === 9000000 && p.unit === 'annual';
+  })());
+  ok('salary parse USD band -> annual', (() => {
+    const p = parseSalaryRaw('$120,000 - $160,000', 'base salary per year'); return p.currency === 'USD' && p.min === 120000 && p.max === 160000 && p.unit === 'annual';
+  })());
+  ok('salary parse monthly flagged', parseSalaryRaw('€6,000 per month', 'gross').unit === 'monthly');
+  ok('salary parse unknown unit left unknown', parseSalaryRaw('$100,000', 'competitive').unit === 'unknown');
+  ok('salary parse single value doubles as band', (() => {
+    const p = parseSalaryRaw('£90,000', 'per annum'); return p.min === 90000 && p.max === 90000;
+  })());
   // Question shapes.
-  const allQ = { ...Q.eligibility({}), ...Q.fit(), ...Q.liveness(), ...Q.redflags(), ...Q.knockout(), ...Q.verifySubmit(), ...Q.sameRole(), ...Q.appliedGuard() };
+  const allQ = { ...Q.eligibility({}), ...Q.fit(), ...Q.liveness(), ...Q.redflags(), ...Q.knockout(), ...Q.verifySubmit(), ...Q.sameRole(), ...Q.appliedGuard(), ...Q.companyScreen(), ...Q.salaryParse(), ...Q.rejectionReason() };
   ok('all questions have type+instructions', Object.values(allQ).every((q) => q.type && q.instructions));
   ok('truncation caps state', trunc('x'.repeat(9000)).length < 7000);
   const failed = checks.filter((c) => !c.pass);
@@ -848,6 +1094,9 @@ const HELP = `jev.mjs — Jev judgments for job-finder + apply-to-jobs (needs TY
   verify-submit --page T --role J          confirmed|ambiguous after submit
   same-role --a A.json --b B.json          LinkedIn-vs-ATS duplicate check
   applied-guard --page T                   already-applied banner check
+  company-screen --profile P --company C [--context T]   sweep|maybe|skip before fetching a board
+  salary-parse --posting J                 published base salary: raw + parsed band
+  rejection-reason --text T                location|comp|level|stack|domain|track|sponsorship|unknown
   selftest                                 offline checks (no key needed)
 
 P/C/J/A/T: file path, '-' (stdin), or inline JSON/text. Profiles are redacted
@@ -859,6 +1108,8 @@ async function main() {
     eligibility: cmdEligibility, fit: cmdFit, rank: cmdRank, liveness: cmdLiveness,
     redflags: cmdRedflags, knockout: cmdKnockout, 'qa-match': cmdQaMatch,
     'verify-submit': cmdVerifySubmit, 'same-role': cmdSameRole, 'applied-guard': cmdAppliedGuard,
+    'company-screen': cmdCompanyScreen, 'salary-parse': cmdSalaryParse,
+    'rejection-reason': cmdRejectionReason,
   }[cmd];
   if (!cmd || cmd === 'help' || cmd === '--help') { console.log(HELP); return; }
   if (cmd === 'selftest') { cmdSelftest(); return; }

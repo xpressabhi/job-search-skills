@@ -9,9 +9,11 @@ Two agent skills that run your entire job search — and keep everything on your
   Greenhouse, Lever, Workable, iCIMS, Workday, SmartRecruiters, Microsoft, LinkedIn including Easy
   Apply, company portals), pausing for you only on captchas, logins, consent walls, or knockout
   mismatches — and checking for prior applications first so nothing is ever submitted twice.
-- **a Jev decision layer** — every semantic judgment (eligibility, fit, liveness, duplicates, form
-  answers) is a typed answer with a calibrated confidence from [Jev](https://typesafe.ai), a TypeSafe
-  System One model — uncertain stays uncertain, and nothing is invented to fill a report.
+- **a Jev decision layer** — every semantic judgment (company pre-screening, eligibility, fit,
+  liveness, duplicates, salary extraction, rejection reasons, form answers) is a typed answer with a
+  calibrated confidence from [Jev](https://typesafe.ai), a TypeSafe System One model — uncertain stays
+  uncertain, and nothing is invented to fill a report. A `company-screen` call runs **before** a board
+  is fetched, so staffing shops, wrong-geography employers, and below-floor pay never cost a scrape.
 
 No server, no account, no external apply service. Profile, tracker, notes, and CV stay in
 `~/.job-search/`; if you set `TYPESAFE_API_KEY`, the only thing that leaves the machine is Jev's

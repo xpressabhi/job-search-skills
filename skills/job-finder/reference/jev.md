@@ -18,6 +18,9 @@ inline JSON/text. Output is JSON on stdout.
 | Command | Decision it owns | Skill step |
 |---|---|---|
 | `eligibility --profile P --posting J` | remote/timezone/payroll/auth/relocation → `eligible`/`unverified`/`ineligible` + reasons (deterministic onsite gate first, no call when it fires) | finder §2.4, playbook §9 |
+| `company-screen --profile P --company C [--context T]` | pre-sweep company triage → `sweep`/`maybe`/`skip` + dimensions (product, hiring market, pay vs floor, domain fit, information) | finder §2.0 |
+| `salary-parse --posting J` | published base salary: code finds money spans, Jev selects the base one, code parses band/unit | finder §2.5, §4 |
+| `rejection-reason --text T` | rejection cause → `location`/`comp`/`level`/`stack`/`domain`/`track`/`sponsorship`/`unknown`/none | finder §5 |
 | `fit --cv C --posting J` | coverage/stack/seniority/domain scores + composite 0..1 + capped `strong`/`good`/`partial`/`weak` | finder §2.6, §3 |
 | `rank --profile P --roles R.json [--limit N] [--no-history] [--lenient]` | deterministic pre-pass (free drops, Jev call skipped) → one fan-out call per survivor (eligibility + fit together) → history penalty → sorted | finder §3 |
 | `liveness --page T --role J` | `live`/`dead`/`suspicious`/`unverified` | finder §2.3, playbook §9a |
@@ -75,6 +78,39 @@ role?" — broad questions hide judgments; atomic ones compose in code.
 
 Thresholds are starting points. If verdicts disagree with hired outcomes,
 retune the numbers here — never rewrite a question to chase one role.
+
+## Company screening (finder §2.0)
+
+`company-screen` runs once per company, before any board fetch: one call replaces a fetch + parse +
+per-role calls for companies that cannot yield eligible roles at all. Dimensions (all Noul):
+`product_company`, `hires_in_candidate_market`, `pays_below_floor`, `candidate_fit`,
+`enough_information`. Verdict composition is code:
+
+- `enough_information` ≤ 0.3 → `maybe` first: without context the other dimensions are guesses, and a
+  false skip hides a company from every future sweep. Pass `--context` (careers-page snippet,
+  locations, comp signals) to move a company out of `maybe`.
+- `product_company` ≤ 0.3 → `skip` (staffing/consultancy/outsourcing).
+- `hires_in_candidate_market` ≤ 0.3 → `skip` (no path to hire the candidate).
+- `pays_below_floor` ≥ 0.7 → `skip` (concrete below-floor evidence only — uncertainty is a flag).
+- Otherwise `sweep`; low `candidate_fit` (≤ 0.3) and uncertain pay/hiring (0.3–0.7) become reasons,
+  not skips.
+
+Cache verdicts with `tracker.mjs company screen <name> --verdict V --reason R`; list them with
+`company screen --list` and re-screen entries older than 30 days. Screens are advisory — the per-role
+filters still decide every role.
+
+## Salary extraction (finder §2.5)
+
+`salary-parse` is select-not-generate: code finds money spans, Jev selects the one that is this role's
+base salary, code parses it. Output: `raw`, `currency`, `min`, `max`, `unit`
+(`annual`/`monthly`/`unknown`), `confidence`. `found:false` or `unit:unknown` means unpublished — the
+report says "not published" instead of guessing.
+
+## Rejection feedback (finder §5)
+
+`rejection-reason` classifies a rejection email/status page into the tracker's reason vocabulary so
+`mark rejected --reason` stays honest. Generic rejections classify as `unknown`; non-rejections
+return `is_rejection:false`.
 
 ## Eval
 

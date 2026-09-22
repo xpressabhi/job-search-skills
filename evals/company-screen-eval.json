@@ -1,0 +1,31 @@
+{
+  "comment": "Company pre-screen eval: companies that must skip (staffing/consultancy, wrong geography, below-floor outsourcing), companies that must sweep, and one unknown that must route to maybe. Run: TYPESAFE_API_KEY=... node evals/run-company-screen.mjs",
+  "profile": {
+    "identity": { "years_experience": 16, "headline": "Staff Software Engineer · AI agent platforms, MCP, agentic systems · React/TypeScript" },
+    "targets": {
+      "seniority": ["Staff", "Principal", "Senior"],
+      "titles": ["Staff Frontend Engineer", "Staff AI Engineer (Agentic Systems)", "Forward Deployed Engineer"],
+      "skills": ["React", "TypeScript", "Node.js", "Python", "AI agents", "MCP", "LangChain"],
+      "industries": ["AI/agent platforms", "developer tools", "SaaS"]
+    },
+    "search": {
+      "modes": ["remote", "hybrid", "onsite"], "cities": ["Hyderabad"], "countries": ["India"],
+      "remote_scope": ["worldwide", "APAC", "India-eligible"], "relocation": false,
+      "salary": { "currency": "INR", "full_time_min": 7500000, "local_currency": "INR", "local_min": 7500000 }
+    },
+    "apply": { "work_authorization": "Indian citizen", "sponsorship_required": false, "willing_to_relocate": false }
+  },
+  "cases": [
+    { "id": "skip-consultancy-accenture", "company": "Accenture", "expect": "skip" },
+    { "id": "skip-staffing-tcs", "company": "Tata Consultancy Services", "expect": "skip" },
+    { "id": "skip-us-only-gusto", "company": "Gusto", "expect": "skip",
+      "context": "Gusto is a US-based payroll and HR platform. All engineering roles are located in the United States (San Francisco, Denver, New York) and require US work authorization. No international offices." },
+    { "id": "skip-offshore-rates", "company": "FastCode Offshore Services", "expect": "skip",
+      "context": "We provide offshore software development teams from India on a staff-augmentation model. Engineers are placed with US clients at $18-25 per hour. Body-shopping contracts, 6-month renewable." },
+    { "id": "sweep-product-ai", "company": "Notion", "expect": "sweep",
+      "context": "Notion builds a productivity and AI workspace product. Engineering offices in San Francisco, New York, Dublin, Hyderabad and Bengaluru. Hires senior engineers in India." },
+    { "id": "sweep-product-hyd", "company": "Qualcomm", "expect": "sweep",
+      "context": "Qualcomm designs chips and platforms; it also runs large software and GenAI platform teams in Hyderabad, India." },
+    { "id": "maybe-unknown", "company": "Northwind Traders Widgets Pvt Ltd", "expect": "maybe" }
+  ]
+}

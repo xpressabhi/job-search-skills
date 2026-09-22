@@ -351,7 +351,7 @@ function seedAnswers(data, answers = []) {
 // ---------------------------------------------------------------- companies
 
 function emptyCompanies() {
-  return { version: 1, learned: [], blocked: [] };
+  return { version: 1, learned: [], blocked: [], screened: {} };
 }
 
 function loadCompanies() {
@@ -362,6 +362,7 @@ function loadCompanies() {
   c.learned ||= [];
   c.blocked ||= [];
   c.verified ||= {};
+  c.screened ||= {};
   return c;
 }
 
@@ -719,8 +720,9 @@ const commands = {
     if (sub === 'list') {
       const c = loadCompanies();
       const ignored = blockedEntries();
+      const screens = Object.values(c.screened || {}).sort((a, b) => String(a.verdict).localeCompare(String(b.verdict)));
       if (flags.json) {
-        console.log(JSON.stringify({ learned: c.learned, ignored }, null, 2));
+        console.log(JSON.stringify({ learned: c.learned, ignored, screened: screens }, null, 2));
         return;
       }
       if (c.learned.length) {
@@ -734,12 +736,52 @@ const commands = {
       } else {
         console.log('learned sweep targets: (none — add one with "company add <name> <portal>")');
       }
+      if (screens.length) {
+        console.log('pre-screened companies (Jev company-screen — skip means do not fetch):');
+        for (const e of screens) {
+          const meta = [e.reasons?.length ? e.reasons.join('; ') : null,
+            e.at ? `checked ${String(e.at).slice(0, 10)}` : null].filter(Boolean).join(' · ');
+          console.log(`  ${e.verdict.padEnd(5)} ${e.name}${meta ? ` — ${meta}` : ''}`);
+        }
+      } else {
+        console.log('pre-screened companies: (none — run "jev.mjs company-screen" before a sweep)');
+      }
       if (ignored.length) {
         console.log('ignored companies (never sweep or surface):');
         for (const e of ignored) console.log(`  ${e.name}${e.reason ? ` — ${e.reason}` : ''}`);
       } else {
         console.log('ignored companies: (none)');
       }
+      return;
+    }
+
+    // Cache a Jev company-screen verdict so future sweeps skip the judgment and
+    // the fetch. Advisory + dated: re-screen stale entries (see SKILL.md).
+    if (sub === 'screen') {
+      const rest = pos.slice(1);
+      if (flags.list || !rest.length) {
+        const c = loadCompanies();
+        const rows = Object.values(c.screened || {}).sort((a, b) => String(a.verdict).localeCompare(String(b.verdict)));
+        if (flags.json) { console.log(JSON.stringify(rows, null, 2)); return; }
+        if (!rows.length) { console.log('no company screens recorded — run jev.mjs company-screen first'); return; }
+        for (const e of rows) {
+          const meta = [e.reasons?.length ? e.reasons.join('; ') : null,
+            e.at ? `checked ${String(e.at).slice(0, 10)}` : null].filter(Boolean).join(' · ');
+          console.log(`  ${e.verdict.padEnd(5)} ${e.name}${meta ? ` — ${meta}` : ''}`);
+        }
+        return;
+      }
+      const name = rest.join(' ');
+      const verdict = norm(flags.verdict || '').toLowerCase();
+      if (!name || !['sweep', 'maybe', 'skip'].includes(verdict)) {
+        fail('usage: company screen <name> --verdict sweep|maybe|skip [--reason "..."]');
+      }
+      const c = loadCompanies();
+      const at = nowIso();
+      c.screened[normKey(name)] = { name: norm(name), verdict,
+        reasons: flags.reason && flags.reason !== true ? [norm(flags.reason)] : [], at };
+      saveCompanies(c);
+      console.log(`screen recorded: ${norm(name)} -> ${verdict}${c.screened[normKey(name)].reasons.length ? ` (${c.screened[normKey(name)].reasons.join('; ')})` : ''}`);
       return;
     }
 
@@ -794,6 +836,7 @@ const commands = {
       const learnedBefore = c.learned.length;
       c.learned = c.learned.filter((e) => normKey(e.name) !== key);
       delete c.verified?.[key];
+      delete c.screened?.[key];
       const at = nowIso();
       const meta = c.blocked.find((e) => normKey(e.name) === key);
       if (meta) {
@@ -967,7 +1010,7 @@ const commands = {
       return;
     }
 
-    fail('usage: company list|add|ignore|unignore|candidates|verify');
+    fail('usage: company list|add|screen|ignore|unignore|candidates|verify');
   },
 
   export() {
@@ -1406,6 +1449,7 @@ usage: node tracker.mjs <command> [args]
   role <id|...>                         print one role as JSON
   list [--status S] [--limit N] [--all] [--json]
   company list|add|ignore|unignore|candidates   learned companies + ignore list
+  company screen [name --verdict sweep|maybe|skip --reason R] [--list]  cached Jev pre-screen
   company verify [name] [--learned --stale D --dry-run --quiet --json]
                                                 health-check starter + learned portals
   export                                regenerate applications.md

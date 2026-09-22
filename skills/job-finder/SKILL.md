@@ -29,7 +29,7 @@ floor, exclusions); the tracker is the memory.
 3. Read the CV: prefer `cv.text_path`, else `cv.stored_path`, else `cv.path`. The CV is canonical for
    skills/level — if the profile and CV disagree, trust the CV and offer to update the profile.
 4. Read `reference/companies.md` (starter sweep order), `tracker.mjs company list` (learned sweep
-   targets + ignored companies), and `reference/search-playbook.md` (how).
+   targets, cached company screens, ignored companies), and `reference/search-playbook.md` (how).
 
 ## Step 1 — Clarify (only if the request diverges)
 
@@ -45,6 +45,19 @@ list`); use `reference/search-playbook.md` §2–§7 for sweep technique (ATS JS
 `reference/ats-apis.md`), boards, X, query patterns, and the user's company lists. Ignored companies
 are never fetched. Only go to supplement boards when the primary sweep yields too few candidates (or
 the user asks for a wider search).
+
+**Company pre-screen — before any board fetch.** One `company-screen` call per company replaces a
+board fetch, parse, and per-role calls for companies that cannot yield eligible roles at all. For
+every company not already screened (cached screens show in `company list`; re-screen entries older
+than 30 days):
+
+    jev.mjs company-screen --profile <profile.json> --company "<name>" [--context <snippet>]
+
+`skip` → do not fetch its board; record the verdict with
+`tracker.mjs company screen "<name>" --verdict skip --reason "…"`. `maybe` → thin information; fetch
+anyway but expect noise. `sweep` → fetch. Pass `--context` (locations, what the company does, comp
+signals) whenever the company is not widely known — without it unknown companies route to `maybe`.
+Screens are advisory and dated, never a substitute for the per-role filters below.
 
 Every candidate passes, in order (free filters before paid judgments — deterministic
 drops never spend a Jev call):
@@ -65,7 +78,10 @@ drops never spend a Jev call):
 4. **Eligibility** — `jev.mjs eligibility --profile <profile.json> --posting <posting.json>`
    (remote region + timezone + payroll + auth + relocation, playbook §9). `ineligible` =
    skip; `unverified` = keep, ranked below `eligible`.
-5. **Comp floor** from the profile — below floor = skip (numeric check in code, never Jev).
+5. **Comp floor** from the profile — below floor = skip (numeric check in code, never Jev). When the
+   posting publishes pay, `jev.mjs salary-parse --posting <posting.json>` extracts the base band
+   (`raw`, currency, min/max, unit) for that check and the report's Salary column; a `unit` of
+   `unknown` means unpublished — say so instead of guessing.
 6. **Level + stack match (strict by default)** — `jev.mjs rank` over the whole shortlist
    (§3). Level mismatch (below or above the candidate band) and missing named requirements
    (`requirement_coverage` < 1.5) drop the role — when level doesn't match, comp and
@@ -110,8 +126,11 @@ draft outreach to the top 3, or apply now (hand off to the **apply-to-jobs** ski
 
 - Picked a role → `tracker.mjs mark interested <id>` (only `interested` roles may be re-shown).
 - Declined → `mark not_interested <id>` · expired posting → `mark expired <id>`.
-- Rejected → always capture the reason — it tunes future ranking:
-  `mark rejected <id> --reason <location|comp|level|stack|domain|track|sponsorship|unknown>`.
+- Rejected → always capture the reason — it tunes future ranking. Paste the rejection email or status
+  text into `jev.mjs rejection-reason --text <text>`; it returns `reason`
+  (`location|comp|level|stack|domain|track|sponsorship|unknown`) plus confidence, then record it:
+  `mark rejected <id> --reason <reason>`. A generic "we moved forward with other candidates" is
+  `unknown`; never invent a cause.
   `tracker.mjs stats` shows the breakdown plus low-yield companies (3+ applied, none advanced).
 - **Repeat declines → offer the ignore list.** After updating statuses, run
   `tracker.mjs company candidates --min 2`; if a company shows up, offer: "You've passed on N
