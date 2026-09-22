@@ -38,6 +38,24 @@ Design notes: verdicts compose in code from atomic Nouls (composite scoring); `e
 routes unknown companies to `maybe` first so a false skip can never hide a company; screens are dated
 and re-screened after 30 days; skips are advisory — the per-role filters still decide every role.
 
+## Implemented 2026-09-22 (pm) — honesty fixes found by the third sweep
+
+All four were live failures in the 2026-09-22 pm sweep; every one could hide a role or
+fabricate a verdict, so they are guards, not optimizations.
+
+| Fix | Where | What it prevents |
+|---|---|---|
+| **Empty posting text is never judged** — `rank` → `unverified`, `fit` → `weak`, both with `no posting text — not judged` | `jev.mjs` (`judgablePosting`) | a Jev call on a blank description answers from the title alone and invents coverage: a LinkedIn 429 left an empty posting and `rank` returned `strong 0.839, coverage 2.95`; with the real text it was `partial 0.571, coverage 1.74` |
+| **Requirement spans survive flattened HTML** — over-long single lines fall back to sentence chunks, then word chunks | `jev.mjs` (`requirementCandidates`) | fetch pipelines strip block tags to spaces, collapsing a posting into one line the `>400`-char filter discarded — `requirements` returned *no spans* for all six live postings |
+| **Greenhouse double-escaped text decoded** — `&lt;p&gt;` → strip tags → entities | sweep fetch scripts | judges were reading literal `&lt;p&gt;` markup junk instead of the posting |
+| **`Home based - …` mapped to `remote`** at rank-input time | sweep fetch scripts | Canonical's home-based roles got `mode:""` → failed relocation despite being worldwide-remote (false skips) |
+
+Also operational (documented, not code): concurrent `seen` processes race on the tracker's
+load→save and silently drop inserts — run it sequentially or use `add-batch` (SKILL.md §4).
+
+Verification: `jev.mjs selftest` 59/59 · rank regression 10/10 drop + 8/8 keep ·
+triage 6/6 · company-screen 7/7.
+
 ## 1. Quality — the skill layer
 
 **Strengths (no action):** SKILL.md files are well under the 500-line budget (97 and 128 lines),

@@ -20,11 +20,11 @@ inline JSON/text. Output is JSON on stdout.
 | `eligibility --profile P --posting J` | remote/timezone/payroll/auth/relocation → `eligible`/`unverified`/`ineligible` + reasons (deterministic onsite gate first, no call when it fires) | finder §2.4, playbook §9 |
 | `company-screen --profile P --company C [--context T]` | pre-sweep company triage → `sweep`/`maybe`/`skip` + dimensions (product, hiring market, pay vs floor, domain fit, information) | finder §2.0 |
 | `triage --profile P --listings L.json` | per-listing fetch/skip before posting fetches → `fetch`/`maybe`/`skip` + dimensions (deterministic onsite gate first) | finder §2.0 |
-| `requirements --profile P --posting J [--cv C] [--max-gaps N]` | must-haves + per-requirement evidence + `gaps` + `coverage` (code finds spans, Jev judges each) | finder §3 |
+| `requirements --profile P --posting J [--cv C] [--max-gaps N]` | must-haves + per-requirement evidence + `gaps` + `coverage` (code finds spans, Jev judges each; flattened single-line text falls back to sentence chunks so stripped HTML still yields spans) | finder §3 |
 | `salary-parse --posting J` | published base salary: code finds money spans, Jev selects the base one, code parses band/unit | finder §2.5, §4 |
 | `rejection-reason --text T` | rejection cause → `location`/`comp`/`level`/`stack`/`domain`/`track`/`sponsorship`/`unknown`/none | finder §5 |
-| `fit --cv C --posting J` | coverage/stack/seniority/domain scores + composite 0..1 + capped `strong`/`good`/`partial`/`weak` | finder §2.6, §3 |
-| `rank --profile P --roles R.json [--limit N] [--no-history] [--lenient]` | deterministic pre-pass (free drops, Jev call skipped) → one fan-out call per survivor (eligibility + fit together) → history penalty → sorted | finder §3 |
+| `fit --cv C --posting J` | coverage/stack/seniority/domain scores + composite 0..1 + capped `strong`/`good`/`partial`/`weak`; empty posting text → `weak` + `no posting text`, never judged | finder §2.6, §3 |
+| `rank --profile P --roles R.json [--limit N] [--no-history] [--lenient]` | deterministic pre-pass (free drops, Jev call skipped: onsite gate, **empty posting text**) → one fan-out call per survivor (eligibility + fit together) → history penalty → sorted | finder §3 |
 | `liveness --page T --role J` | `live`/`dead`/`suspicious`/`unverified` | finder §2.3, playbook §9a |
 | `redflags --posting J` | `fee_or_kyc_scam`, `surveillance_terms`, `bodyshop_repost` | playbook §10 |
 | `same-role --a A --b B` | LinkedIn-vs-ATS duplicate check | finder §2.1, apply duplicate guard |
@@ -64,6 +64,14 @@ role?" — broad questions hide judgments; atomic ones compose in code.
 - Strict by default: level and stack mismatches are dropped, not surfaced — when
   the level doesn't match, comp and interviews don't either. `--lenient` restores
   soft caps (level ±2 → `partial`, coverage < 1.0 → drop) for wide-net runs.
+- **Empty posting text is never judged.** `rank` returns `unverified` and `fit`
+  returns `weak` with `no posting text — not judged` instead of making a call:
+  given only a title, Jev will answer confidently anyway and invent coverage it
+  never saw (2026-09-22: a LinkedIn 429 left a blank description and `rank`
+  scored it `strong 0.839, coverage 2.95`; with the real text it was
+  `partial 0.571, coverage 1.74`). Re-fetch the text (backoff on 429), then
+  re-run `rank`. `eligibility` is exempt: its questions are location/auth/
+  timezone/payroll/relocation, all answerable from the role's location fields.
 - Soft caps (label capped at `partial`, never `good`/`strong`): `level_match` =
   `unclear` (strong→good), coverage < 2.25 (cover-most bar); with `--lenient`,
   level mismatches also cap at partial.

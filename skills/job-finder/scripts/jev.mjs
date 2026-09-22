@@ -367,8 +367,30 @@ function requirementCandidates(text, cap = 12) {
     .split(/\r?\n|•|·|‣|▪|●|○|\u2022/)
     .map((s) => s.replace(/\s+/g, ' ').replace(/^[-*–—]\s*/, '').trim())
     .filter(Boolean);
-  const scored = [];
+  // Fetch pipelines flatten HTML (block tags → spaces), collapsing a whole
+  // posting into one line the >400-char filter would then discard — every
+  // requirement span would vanish (2026-09-22: all six live postings scored
+  // "no requirement-like spans"). Expand over-long lines into sentence chunks,
+  // then word chunks, so flat text still yields findable spans.
+  const parts = [];
   for (const line of lines) {
+    if (line.length <= 400) { parts.push(line); continue; }
+    for (const sent of line.split(/(?<=[.!?])\s+/)) {
+      const s = sent.trim();
+      if (!s) continue;
+      if (s.length <= 400) { parts.push(s); continue; }
+      let rest = s;
+      while (rest.length > 400) {
+        let cut = rest.lastIndexOf(' ', 380);
+        if (cut < 100) cut = 380;
+        parts.push(rest.slice(0, cut).trim());
+        rest = rest.slice(cut).trim();
+      }
+      if (rest) parts.push(rest);
+    }
+  }
+  const scored = [];
+  for (const line of parts) {
     if (line.length < 25 || line.length > 400) continue;
     let score = 0;
     if (/\b(must|required|requirement|proficien|experience (with|in)|expertise|strong|deep|hands-on|knowledge of|familiar|ability to|minimum)\b/i.test(line)) score += 2;
@@ -814,6 +836,15 @@ async function cmdEligibility(opts) {
     Object.entries(data.answers).map(([k, v]) => [k, v.noul])), model: data.model };
 }
 
+// Nothing to score ⇒ nothing to invent. A Jev call on an empty description
+// answers from the title alone and happily reports coverage it never saw:
+// 2026-09-22, a LinkedIn 429 left an empty posting and rank returned
+// "strong 0.839, coverage 2.95" for it. Empty ⇒ unverified, never judged.
+function judgablePosting(posting) {
+  const t = String(posting?.posting_text ?? posting?.text ?? posting?.description ?? '').trim();
+  return t.length >= 80;
+}
+
 async function cmdFit(opts) {
   const cvRaw = readOpt(opts['--cv']);
   let cv;
@@ -825,6 +856,10 @@ async function cmdFit(opts) {
     ? { years_experience: cv.years_experience ?? null, headline: cv.headline || cv.text?.slice(0, 200) || '',
         seniority: cv.seniority || [], titles: cv.titles || [], skills: cv.skills || [], industries: cv.industries || [] }
     : { text: trunc(typeof cv.text === 'string' ? cv.text : String(cvRaw)) };
+  if (!judgablePosting(posting)) {
+    return { scores: null, gates: null, confidences: null, composite: 0, label: 'weak',
+      gate_reasons: ['no posting text — not judged (empty description)'], model: null };
+  }
   const state = {
     candidate,
     posting: { title: posting.title || '', company: posting.company || '', posting_text: trunc(posting.posting_text || posting.text || '') },
@@ -873,6 +908,13 @@ async function cmdRank(opts) {
     if (gateHit) {
       return { ...base, id: r.id ?? null, url: r.url || '', company: r.company || '',
         title: r.title || '', reasons: [gateHit], deterministic: true };
+    }
+    // Empty description ⇒ nothing to score. Never let a Jev call invent
+    // coverage from a title alone; rank stays honest instead of fabricating.
+    if (!judgablePosting(r)) {
+      return { ...base, id: r.id ?? null, url: r.url || '', company: r.company || '',
+        title: r.title || '', verdict: 'unverified', level: null, coverage: null,
+        reasons: ['no posting text — not judged (empty description)'], deterministic: true };
     }
     const state = {
       candidate,
@@ -1197,6 +1239,20 @@ function cmdSelftest() {
     levelBackstop('Staff Software Engineer', 'at') === 'at' && levelBackstop('Associate Principal Engineer', 'at') === 'at');
   ok('level backstop leaves above/unclear alone',
     levelBackstop('Software Engineer II', 'above') === 'above' && levelBackstop('Software Engineer II', 'unclear') === 'unclear');
+  // Nothing invented from an empty description (2026-09-22: LinkedIn 429 left a
+  // blank posting and rank scored it "strong 0.839 / coverage 2.95").
+  ok('empty posting is not judgable', !judgablePosting({ posting_text: '' })
+    && !judgablePosting({ text: '   ' }) && !judgablePosting(null) && !judgablePosting(undefined));
+  ok('real posting is judgable', judgablePosting({ posting_text:
+    'We are looking for a Senior React Engineer with 5+ years of hands-on React and TypeScript experience building scalable products.' }));
+  // Flattened single-line HTML must still yield requirement spans (fetch strips
+  // block tags to spaces; the >400-char filter used to discard the whole line).
+  ok('flat single-line text still finds requirement spans',
+    requirementCandidates('Hands-on experience with React, TypeScript and modern build tools. '.repeat(10), 6).length > 0);
+  ok('very long single sentence still finds requirement spans',
+    requirementCandidates('You must have strong expertise in ' + 'building large scale distributed systems and delightful user interfaces '.repeat(6), 6).length > 0);
+  ok('newline text still finds requirement spans',
+    requirementCandidates('Must have 5+ years of experience building React applications at scale.\n- Strong TypeScript skills and solid testing habits.\n- Familiarity with Next.js and server-side rendering patterns.', 6).length > 0);
   const hyd = { cities: ['Hyderabad'], relocation_ok: false };
   ok('onsite gate drops Delhi onsite, no relocation',
     typeof onsiteGate(hyd, { mode: 'on-site', location: 'Delhi' }) === 'string');

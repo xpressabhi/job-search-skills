@@ -77,6 +77,11 @@ drops never spend a Jev call):
      Roles the tracker marks `applied`/pipeline/`not_interested` are never reported again.
    - Cross-source copy (LinkedIn vs company ATS, title reworded) → `jev.mjs same-role
      --a <role-a.json> --b <role-b.json>`; `same:true` counts as the same application.
+   - **Run it sequentially** (or bulk-load with `add-batch`, one process): the tracker
+      load→save's the whole file per call, so concurrent `seen` processes race and the last
+      writer silently discards the others' inserts (cost 64 inserts in the 2026-09-22 sweep).
+      Statuses are never corrupted — only newly-inserted rows are lost — and `add-batch`
+      restores them atomically.
 2. **Exclusions** — ignored companies (`tracker.mjs company list`) are never fetched or surfaced;
    profile `search.company_rules` (product-only, excluded types/companies) and relocation per
    playbook §9–§10. The `seen` check also warns on stderr if a role sneaks in from an ignored company.
