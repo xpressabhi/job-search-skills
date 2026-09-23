@@ -155,12 +155,21 @@ function findRole(data, query, flags = {}) {
 }
 
 function findByDedupe(data, url, company, title) {
-  if (norm(url)) {
-    const hit = data.roles.find((r) => r.url && normUrl(r.url) === normUrl(url));
+  const u = norm(url);
+  if (u) {
+    const hit = data.roles.find((r) => r.url && normUrl(r.url) === normUrl(u));
     if (hit) return hit;
   }
+  // Company+title fallback exists for aggregator copies of the same posting
+  // (e.g. a LinkedIn row vs the company ATS row). It must never merge two
+  // rows that both carry distinct URLs — those are separate reqs. Without
+  // this guard, four "Sr Staff Software Engineer" reqs at one company
+  // collapsed into a single row and one row's not_interested status hid a
+  // newer posting (2026-09-23). Cross-source copies are confirmed by
+  // `jev same-role`, not by title text alone.
   return data.roles.find(
-    (r) => normKey(r.company) === normKey(company) && normKey(r.title) === normKey(title),
+    (r) => normKey(r.company) === normKey(company) && normKey(r.title) === normKey(title)
+      && !(u && r.url && normUrl(r.url) !== normUrl(u)),
   );
 }
 
@@ -1345,6 +1354,18 @@ const commands = {
     });
     check('seen dedupes by url', () => {
       const out = runFail(['seen', 'https://example.com/jobs/1', 'Acme', 'Staff Engineer'], 1);
+      if (!out.startsWith('ALREADY SEEN')) throw new Error(`expected ALREADY SEEN, got ${out}`);
+    });
+    check('same title+company, different URL stays a distinct req', () => {
+      const out = run(['seen', 'https://example.com/jobs/9', 'Acme', 'Staff Engineer', '--mode', 'hybrid']);
+      if (!out.startsWith('NEW')) throw new Error(`expected NEW, got ${out}`);
+      const list = run(['list', '--all']);
+      const hits = list.split('\n').filter((l) => l.includes('Staff Engineer') && l.includes('Acme'));
+      if (hits.length !== 2) throw new Error(`expected 2 distinct rows, got ${hits.length}`);
+    });
+    check('url-less row still dedupes by company+title', () => {
+      run(['seen', '', 'Umbrella', 'Data Engineer', '--mode', 'remote']);
+      const out = runFail(['seen', '', 'Umbrella', 'Data Engineer'], 1);
       if (!out.startsWith('ALREADY SEEN')) throw new Error(`expected ALREADY SEEN, got ${out}`);
     });
     check('add-batch', () => {
