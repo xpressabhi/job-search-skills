@@ -131,6 +131,16 @@ candidate evidence (`evidence_i`, 0–3), and code composes `must_haves`, `gaps`
 evidence < 2) and `coverage`. Use `--max-gaps N` for a `shortlist_ok` boolean before rank. Pass
 `--cv` when the profile omits education/certifications — the CV is canonical and scores those spans.
 
+## Cross-check gate (finder §3)
+
+`scripts/crosscheck.mjs` composes the per-role evidence into a hard present/drop verdict; it is the
+only path into a report. Per role: `rank` (eligibility+fit, profile) + `fit` (CV) + `requirements`
+(must-have gaps) + `redflags` (survivors) → **PRESENT** only when rank is not `ineligible`, rank or
+fit reaches `good`/`strong` (`--strict`: both), gaps ≤ `--max-gaps` (default 1), and no red-flag
+hits. Fail-closed on Jev errors (drop — never present unverified). Exit 0 when ≥1 role presents,
+1 otherwise. Presenting a role the gate dropped is a bug; an empty gate is a valid report
+(user MUST, 2026-10-05).
+
 ## Salary extraction (finder §2.5)
 
 `salary-parse` is select-not-generate: code finds money spans, Jev selects the one that is this role's

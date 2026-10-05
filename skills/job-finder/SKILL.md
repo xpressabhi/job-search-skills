@@ -21,6 +21,9 @@ floor, exclusions); the tracker is the memory.
   (1st/2nd-degree referral check). All drive the apply skill's `chrome.mjs` against the dedicated
   signed-in profile; run `linkedin-sweep.mjs check` first — a login wall means the user signs in
   once in the visible Chrome window.
+- Quality gate: `scripts/crosscheck.mjs --profile P --roles R.json` — the mandatory Jev
+  cross-check (rank + fit + requirements + redflags) every role passes before it is presented.
+  Only PRESENT roles are reported; everything else is dropped (user MUST, 2026-10-05).
 - Deep references, load on demand: `reference/companies.md` (starter company universe),
   `reference/search-playbook.md` (techniques, boards, verification, red flags).
 
@@ -113,9 +116,10 @@ drops never spend a Jev call):
 6. **Level + stack match (strict by default)** — `jev.mjs rank` over the whole shortlist
    (§3). Level mismatch (below or above the candidate band) and missing named requirements
    (`requirement_coverage` < 1.5) drop the role — when level doesn't match, comp and
-   interviews don't either. `--lenient` softens to partial fits for wide-net runs.
-   Only level+stack matches (`good`/`strong`) belong in the report's top; `partial` means
-   "possible but not recommended" and goes in a flagged footer line, never dressed up.
+   interviews don't either. Only roles that pass the mandatory `scripts/crosscheck.mjs` gate
+   (§3) reach the report; `partial`/`weak` roles are dropped and counted in the skip lines,
+   never presented — not even as a footer "possible" (user MUST, 2026-10-05). Widening a run
+   requires the user to ask for it explicitly.
 
 Record the posting's own publish date as `--posted YYYY-MM-DD` (empty if not shown) and the exact
 canonical ATS URL — both are reused verbatim in the report.
@@ -124,7 +128,7 @@ New strong sources get remembered: after the sweep, `tracker.mjs company add "<C
 [--ats X]` for any company that yielded several good roles or that the user wants watched — future
 runs sweep it automatically.
 
-## Step 3 — Score and rank
+## Step 3 — Score and rank · cross-check gate
 
 `jev.mjs rank --profile <profile.json> --roles <shortlist.json>` scores eligibility + fit
 in one fan-out call per role and returns verdict-then-composite order (playbook §11:
@@ -132,25 +136,36 @@ eligibility confirmed > published salary > CV-fit > company quality > timezone/c
 fit — salary/company-currency math stays in code). **Level and stack must match:**
 below/above-level roles and roles missing named requirements are dropped, not softened.
 Only `interested` roles are ever re-shown, so the report is the user's one shot at each
-role — rank honestly. `good`/`strong` level+stack matches fill the table; `partial` roles
-go in one flagged footer line ("possible but not recommended") or nowhere. Red-flag hits
-(`jev.mjs redflags`) override the order entirely, however good the math looks.
+role — rank honestly.
 
-For every role that reaches the report or the footer, name the gap instead of hiding it:
-`jev.mjs requirements --profile P --posting J [--cv C] [--max-gaps N]` returns the posting's
-must-haves with candidate evidence, a `coverage` number, and `gaps` (must-haves the CV does not
-evidence). Use the gap text in the report's "Why it stands out"/footer line, and `--max-gaps N` to
-short-circuit a role whose must-have gaps are fatal before spending a rank call. Pass `--cv` when the
-profile omits education or certifications — the CV is canonical.
+### The Jev cross-check gate — mandatory before any role is presented
+
+    node scripts/crosscheck.mjs --profile <profile.json> --roles <shortlist.json> [--max-gaps 1] [--strict] [--out F]
+
+Composes the full evidence per role — rank (eligibility + fit, profile), fit (CV),
+requirements (must-have gaps), redflags (survivors) — into a hard **PRESENT / DROP** verdict.
+PRESENT requires all of: rank not `ineligible`; rank **or** fit reaches `good`/`strong`
+(`--strict`: both); must-have gaps ≤ `--max-gaps` (default 1, each one disclosed on the row);
+no red-flag hits. Fail-closed: a Jev error drops the role. Exit 0 when at least one role
+presents, 1 otherwise.
+
+Only PRESENT roles reach the report; DROP roles are counted in the skip lines with their
+reason — never presented, never padded in as "possible" (user MUST, 2026-10-05). An empty
+result is a valid answer: report "no high-quality matches this sweep" and show coverage.
+Name every gap the gate surfaced (`jev.mjs requirements` gap text) on the role's row.
 
 ## Step 4 — Deliver a ranked report
 
-10–15 roles max, mixed modes when the profile allows. Columns:
+Only cross-check PRESENT roles, 10–15 max, mixed modes when the profile allows. Columns:
 
 **Role & Company** (link — ALWAYS the live posting on the company's own portal/ATS; aggregators are
 discovery-only) · **Salary** (published, else `estimate: …`) · **Mode** (remote / hybrid X days /
 on-site <city>) · **Level/Stack** · **Eligibility** (confirmed / likely / unverified) ·
-**Timezone/Commute** · **Why it stands out** (one line; include stale/stretch flags here).
+**Timezone/Commute** · **Why it stands out** (one line; include stale/stretch flags and any
+rank-vs-fit disagreements here).
+
+If the gate presented nothing: say so plainly — "no high-quality matches this sweep" — with the
+skip/coverage lines. Never fill a report with below-bar roles.
 
 Referral-first is the profile's channel rule: for the roles that reach the report, run
 `node scripts/warm-path.mjs "<company>"` (or `--batch` for several companies) and give each role a

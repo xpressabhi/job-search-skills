@@ -67,6 +67,7 @@ never swept; 0 tracked referral actions against a referral-first profile rule):
 | `naukri-sweep.mjs` — Naukri (India) discovery: date-sorted search, canonical `-N` pagination, structured cards | finder `scripts/`, SKILL.md §2, playbook §4 | first scripted India-board channel — the highest-density source for Hyderabad product roles |
 | `warm-path.mjs` — LinkedIn 1st/2nd-degree check per company (single or batch) | finder `scripts/`, SKILL.md §4, playbook §11 | mechanizes the referral-first rule: the report carries warm-path evidence instead of a note |
 | `sweep-lib.mjs` — shared chrome.mjs driver helpers (connect, readiness polling, redirect decoding) | finder `scripts/` | one place for the CDP plumbing |
+| `crosscheck.mjs` — mandatory Jev gate: rank + fit + requirements + redflags → hard PRESENT/DROP per role, fail-closed | finder `scripts/`, SKILL.md §3/§4, jev.md | partial/borderline roles can no longer be presented (user MUST 2026-10-05); an empty gate is a valid report |
 | Himalayas marked browser-only in the playbook | playbook §3 | its API has no search/filter over 116k listings |
 
 Live-verified 2026-10-05: LinkedIn pages collect all 25 cards only after scrolling the inner list
