@@ -56,6 +56,25 @@ load→save and silently drop inserts — run it sequentially or use `add-batch`
 Verification: `jev.mjs selftest` 59/59 · rank regression 10/10 drop + 8/8 keep ·
 triage 6/6 · company-screen 7/7.
 
+## Implemented 2026-10-05 — browser-driven sweep channels (LinkedIn, Naukri, warm path)
+
+Gaps found by the usage audit (14 sweeps: LinkedIn was a scripted step in only ~4–5; India boards
+never swept; 0 tracked referral actions against a referral-first profile rule):
+
+| Addition | Where | What it changes |
+|---|---|---|
+| `linkedin-sweep.mjs` — signed-in LinkedIn Jobs discovery: profile-derived query matrix, virtualized-list scroll-and-collect, original-ATS URL resolution | finder `scripts/`, SKILL.md §2, playbook §2/§4 | LinkedIn becomes a scripted channel on every sweep instead of ad-hoc browser work; every reported role resolves to the employer's own posting |
+| `naukri-sweep.mjs` — Naukri (India) discovery: date-sorted search, canonical `-N` pagination, structured cards | finder `scripts/`, SKILL.md §2, playbook §4 | first scripted India-board channel — the highest-density source for Hyderabad product roles |
+| `warm-path.mjs` — LinkedIn 1st/2nd-degree check per company (single or batch) | finder `scripts/`, SKILL.md §4, playbook §11 | mechanizes the referral-first rule: the report carries warm-path evidence instead of a note |
+| `sweep-lib.mjs` — shared chrome.mjs driver helpers (connect, readiness polling, redirect decoding) | finder `scripts/` | one place for the CDP plumbing |
+| Himalayas marked browser-only in the playbook | playbook §3 | its API has no search/filter over 116k listings |
+
+Live-verified 2026-10-05: LinkedIn pages collect all 25 cards only after scrolling the inner list
+(virtualization leaves 18/25 rows as empty placeholders — single-shot DOM reads lose most rows);
+resolution decoded HSBC / Nationwide-Workday / Google Careers / TELUS-Ashby / Verisk-Oracle cards
+to real ATS URLs; warm-path found 1 × 1st + 10 × 2nd at Tether; Naukri collected 40 cards over
+2 pages.
+
 ## 1. Quality — the skill layer
 
 **Strengths (no action):** SKILL.md files are well under the 500-line budget (97 and 128 lines),

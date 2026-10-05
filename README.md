@@ -130,8 +130,9 @@ The skills drive the tracker for you; if you ever want it directly,
 - Node 18+ (to install and run the tracker)
 - Node 22+ for `apply-to-jobs` — its Chrome helper uses the built-in WebSocket; with older Node use
   the `chrome-devtools` MCP tools instead
-- Chrome for applications (the helper can launch it with a dedicated profile:
-  `node skills/apply-to-jobs/scripts/chrome.mjs launch`)
+- Chrome for applications and LinkedIn/Naukri sweeps (the helper can launch it with a dedicated
+  profile: `node skills/apply-to-jobs/scripts/chrome.mjs launch` — sign in to LinkedIn once in
+  that window; the session persists)
 - `TYPESAFE_API_KEY` for the Jev decision layer — optional; without it the skills fall back to the
   agent's own judgment and note it in the report
 - macOS Keychain is optional — only if you preconfigure credentials for login-walled portals
@@ -149,6 +150,9 @@ The skills drive the tracker for you; if you ever want it directly,
   verdict is reported as `unverified` — not sold as a match
 - Never stretches your CV to fit a role — partial fits are labeled as such
 - Never reports an aggregator link when the real posting is on the company's own ATS
+- Sweeps LinkedIn (signed-in) and Naukri as first-class channels — LinkedIn finds resolve to the
+  employer's own posting, and shortlists carry a warm-path check (1st/2nd-degree connections) for
+  referral-first outreach
 
 ## License
 

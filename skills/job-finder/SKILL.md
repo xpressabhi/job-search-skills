@@ -16,6 +16,11 @@ floor, exclusions); the tracker is the memory.
   Needs `TYPESAFE_API_KEY`; without it, judge manually and say so. Details: `reference/jev.md`.
 - Browser decisions: the apply skill's `chrome.mjs decide` + `do` drive page actions through
   the Jev browser-decision loop — never guess a control from coordinates.
+- Browser sweeps: `scripts/linkedin-sweep.mjs` (signed-in LinkedIn Jobs discovery + original-
+  posting resolution), `scripts/naukri-sweep.mjs` (Naukri, India), and `scripts/warm-path.mjs`
+  (1st/2nd-degree referral check). All drive the apply skill's `chrome.mjs` against the dedicated
+  signed-in profile; run `linkedin-sweep.mjs check` first — a login wall means the user signs in
+  once in the visible Chrome window.
 - Deep references, load on demand: `reference/companies.md` (starter company universe),
   `reference/search-playbook.md` (techniques, boards, verification, red flags).
 
@@ -43,8 +48,17 @@ on?" — then honor the answer and keep the profile current from then on.
 Default pool = `reference/companies.md` in table order, plus learned companies (`tracker.mjs company
 list`); use `reference/search-playbook.md` §2–§7 for sweep technique (ATS JSON endpoints first —
 `reference/ats-apis.md`), boards, X, query patterns, and the user's company lists. Ignored companies
-are never fetched. Only go to supplement boards when the primary sweep yields too few candidates (or
-the user asks for a wider search).
+are never fetched.
+
+**Sweep channels — run all four every sweep** (unless the user narrows the ask):
+1. **ATS boards** — the default pool via JSON endpoints.
+2. **LinkedIn Jobs** (signed-in): `node scripts/linkedin-sweep.mjs run`, then
+   `node scripts/linkedin-sweep.mjs resolve --in <file> --limit N` so every role kept points at the
+   employer's own posting; report a LinkedIn URL only for Easy-Apply-only listings (flag it).
+3. **Naukri** (India): `node scripts/naukri-sweep.mjs run` (date-sorted) — cards are discovery;
+   cross-check the employer's own portal for shortlisted roles.
+4. **Fresh supplements** — HN "Who is hiring?" (current month), remote boards, X, company lists
+   (playbook §3–§7) when the primary channels yield too few or the user asks wider.
 
 **Company pre-screen — before any board fetch.** One `company-screen` call per company replaces a
 board fetch, parse, and per-role calls for companies that cannot yield eligible roles at all. For
@@ -71,7 +85,7 @@ mismatches skip — a thin listing never hides a role.
 Every candidate passes, in order (free filters before paid judgments — deterministic
 drops never spend a Jev call):
 
-1. **Never re-surface gate:** `tracker.mjs seen <url> <company> <title> --mode … --location … --salary … --posted …`
+1. **Never re-surface gate:** `tracker.mjs seen <url> <company> <title> --mode … --location … --salary … --posted … --source …`
    - `NEW` (exit 0) → first time; keep going.
    - `ALREADY SEEN` (exit 1) → drop it; count it into a "previously surfaced — skipped: N" line.
      Roles the tracker marks `applied`/pipeline/`not_interested` are never reported again.
@@ -137,6 +151,11 @@ profile omits education or certifications — the CV is canonical.
 discovery-only) · **Salary** (published, else `estimate: …`) · **Mode** (remote / hybrid X days /
 on-site <city>) · **Level/Stack** · **Eligibility** (confirmed / likely / unverified) ·
 **Timezone/Commute** · **Why it stands out** (one line; include stale/stretch flags here).
+
+Referral-first is the profile's channel rule: for the roles that reach the report, run
+`node scripts/warm-path.mjs "<company>"` (or `--batch` for several companies) and give each role a
+**Warm path** note — 1st-degree names, 2nd-degree count. Roles with a warm path lead the "next
+moves"; a 0-path role at a low-yield company is flagged, not sold as a cold-apply opportunity.
 
 Add skip lines where relevant: "previously surfaced — skipped: N", "already applied — skipped: N",
 "dead/expired — skipped: N", and one coverage line — "swept N companies — M had no matching roles"

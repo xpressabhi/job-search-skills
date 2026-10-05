@@ -32,14 +32,16 @@ to the board URL when an endpoint is missing or blocked.
 - **Own boards (Google/MS/Amazon/Stripe/Netflix…):** site search box; filter country + remote.
 - **Other ATS (BambooHR `<co>.bamboohr.com/careers`, Recruitee `<co>.recruitee.com`, Teamtailor,
   Personio):** no query params — scan the board root; the company's `/careers` page links its ATS.
-- **LinkedIn:** sign in once in the dedicated Chrome profile (via `apply-to-jobs`' `chrome.mjs
-  launch`) — logged-out search is a walled stub. Search
+- **LinkedIn (run every sweep — scripted):** `node scripts/linkedin-sweep.mjs check` then
+  `run` (profile titles × Hyderabad + India-remote, `f_TPR` 1/3/7/30 days, newest-first, full
+  virtualized-list collection), then `resolve --in <cards.json> --limit N` to decode each card's
+  original ATS URL. Login wall → the user signs in once in the visible Chrome profile
+  (`apply-to-jobs`' `chrome.mjs launch`); the session persists. A LinkedIn URL is reported only
+  for Easy-Apply-only listings (label `easy apply`). Dedupe on company+title keeps the LinkedIn
+  and ATS copies of one role from surfacing twice. Manual fallback: search
   `linkedin.com/jobs/search/?keywords=…&location=…` with `f_WT=2` (remote) / `1` (on-site) /
-  `3` (hybrid), `f_TPR=r604800` (past week), sorted by date; company pages:
-  `linkedin.com/company/<slug>/jobs` catches roles posted only there. Record `--source linkedin`.
-  **Resolve the original posting before reporting:** the Apply control shows whether it links out
-  (external ATS — report that URL) or is Easy Apply-only (report the LinkedIn URL, label `easy
-  apply`). Dedupe on company+title keeps the LinkedIn and ATS copies of one role from surfacing twice.
+  `3` (hybrid) and `sortBy=DD`; company pages `linkedin.com/company/<slug>/jobs` catch roles
+  posted only there. Record `--source linkedin`.
 - **ATS site-query cross-check** (after the sweep): restrict to known slugs —
   `site:job-boards.greenhouse.io OR site:jobs.ashbyhq.com OR site:jobs.lever.co ("Staff Software Engineer" OR "Principal Software Engineer") (<country> OR <city> OR Remote)`.
   Workday hosts index poorly — sweep them directly instead.
@@ -47,7 +49,8 @@ to the board URL when an endpoint is missing or blocked.
 
 ## 3. Supplements — remote boards (only if the primary sweep yields too few)
 
-Himalayas (himalayas.app/jobs) · RemoteOK · WeWorkRemotely · Remotive · Wellfound · JustRemote ·
+Himalayas (himalayas.app — its API has **no search/filter** over 116k listings; use the website in a
+browser, or skip) · RemoteOK · WeWorkRemotely · Remotive · Wellfound · JustRemote ·
 Working Nomads · ai-jobs.net · YC (ycombinator.com/jobs — the location tag, e.g. "Remote (IN)", is
 the eligibility signal, not marketing copy) · HN "Who is hiring?" monthly thread ·
 LinkedIn (signed in — §2) with the remote filter (`f_WT=2`) · WelcomeToTheJungle (salaries shown).
@@ -61,12 +64,16 @@ you" bodyshops are not in scope: pay, IP, and work quality rarely clear the bar.
 
 Use the user's city/metro from the profile:
 
-- **LinkedIn Jobs** (signed in — §2): city geoId + `f_WT=1` (on-site) | `f_WT=3` (hybrid) |
-  `f_WT=2` (remote), separate runs; add `f_TPR=r604800` (past week) and sort by date. Search the
-  target titles; use the salary filter where available.
-- **Naukri / Cutshort / Instahyre / iimjobs** (India) · **Otta** (UK/US/EU) · **Jobs.ch** (CH) ·
-  **StepStone/Xing** (DACH) · **Seek** (AU/NZ) — the regional board splits by market; use what the
-  profile's country implies.
+- **LinkedIn Jobs** (signed in — §2, scripted): `linkedin-sweep.mjs run` covers on-site/hybrid/
+  remote via separate queries; manual pattern is city geoId + `f_WT=1|3|2` with `f_TPR` and
+  `sortBy=DD`.
+- **Naukri** (India — scripted): `node scripts/naukri-sweep.mjs run` — date-sorted, Hyderabad by
+  default (`--loc`), paginates via canonical `-N` URLs. Cross-check shortlisted roles against the
+  employer's own portal; Naukri's apply flow is often the employer's chosen channel, so treat the
+  Naukri posting as the application target when no company posting exists.
+- **Cutshort / Instahyre / iimjobs** (India, manual — login-walled) · **Otta** (UK/US/EU) ·
+  **Jobs.ch** (CH) · **StepStone/Xing** (DACH) · **Seek** (AU/NZ) — the regional board splits by
+  market; use what the profile's country implies.
 - **Wellfound** + **YC jobs** with the country filter.
 - **Glassdoor / AmbitionBox / levels.fyi** for salary benchmarking before ranking.
 
@@ -171,6 +178,9 @@ history predating the posting) · money flow (direct wire or named EOR only).
   the postings themselves plus the benchmark discipline below, and rank by true annual take-home, not
   by the currency format.
 - Order: eligibility confirmed > published salary > CV-fit > company quality > timezone/commute fit.
+- **Warm path** (profile channel rule): a role with 1st-degree coverage at the company outranks an
+  otherwise equal cold role — `scripts/warm-path.mjs "<company>"` supplies the signal (1st-degree
+  names, 2nd-degree count) for the report's "next moves".
 - Published ranges strongly preferred; when absent, write `estimate: <X>` and rank below roles that
   publish. Note equity-only-heavy offers and flag if base is below the floor.
 - Cross-mode comparison: convert everything to the user's primary currency at a consistent rate
