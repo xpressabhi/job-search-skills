@@ -133,8 +133,15 @@ If `profile.company_list_urls` is non-empty, treat each list as a **candidate po
    async flexibility if the profile says so (record the reason).
 3. Payroll: entity, EOR (Deel/Remote/Oyster/Multiplier/Skuad/Papaya), or "contractors globally".
 4. Exclusions: "must be authorized to work in <country>" that the user isn't, US-only / EU-only, etc.
-5. Relocation requirements — the profile says whether relocation is acceptable. If `relocation:
-   false`, any "remote now, relocate later" or relocation-required posting is a hard skip.
+5. Relocation requirements — read `search.relocation` in the profile. Plain `false` → any
+   "remote now, relocate later" or relocation-required posting outside the candidate cities is a
+   hard skip. Conditional form (`{conditional:true, min_total_lpa, min_cash_lpa, regions}`) →
+   office/hybrid roles in otherwise-excluded metros ARE eligible only when the posting evidences
+   pay meeting the floors (total above `min_total_lpa` with at least `min_cash_lpa` as cash;
+   bonus/stock/RSU/ESOP may cover the remainder). Unpublished or unverifiable pay does not
+   qualify. `jev.mjs` enforces this deterministically in the onsite gate (`relocationTermsOk`)
+   and the eligibility question reads the same terms; the report discloses whether the cash
+   split was verified or needs recruiter confirmation.
 
 Ambiguous → fetch the posting; still unsure → mark `unverified` and rank accordingly.
 

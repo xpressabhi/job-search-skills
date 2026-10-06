@@ -84,7 +84,16 @@ function redactProfile(p = {}) {
     countries: search.countries || [],
     remote_scope: search.remote_scope || [],
     timezone_max_offset_hours: search.timezone?.max_offset_hours ?? null,
-    relocation_ok: Boolean(search.relocation || apply.willing_to_relocate),
+    relocation_ok: search.relocation === true || Boolean(apply.willing_to_relocate),
+    relocation_conditional: (() => {
+      const r = search.relocation;
+      if (!r || typeof r !== 'object' || r.conditional !== true) return null;
+      return {
+        min_total_lpa: Number(r.min_total_lpa ?? 120),
+        min_cash_lpa: Number(r.min_cash_lpa ?? 100),
+        regions: Array.isArray(r.regions) && r.regions.length ? r.regions : ['India'],
+      };
+    })(),
     work_authorization: apply.work_authorization || '',
     sponsorship_required: Boolean(apply.sponsorship_required),
     salary_min: search.salary?.full_time_min ?? null,
@@ -264,6 +273,42 @@ const METROS = ['delhi', 'ncr', 'noida', 'gurugram', 'gurgaon', 'mumbai', 'pune'
   'san francisco', 'new york', 'austin', 'seattle', 'boston', 'chicago', 'london',
   'berlin', 'amsterdam', 'dublin', 'singapore', 'tokyo', 'sydney', 'toronto'];
 const normCity = (s) => String(s || '').toLowerCase().replace(/bengaluru/g, 'bangalore').replace(/gurgaon/g, 'gurugram');
+// ---- Conditional relocation (user rule 2026-10-06) --------------------------
+// Relocation outside the candidate cities is acceptable when the posting
+// evidences pay above the bar: total ≥ min_total_lpa (₹120 LPA) with cash
+// ≥ min_cash_lpa (₹100 LPA); bonus/stock/RSU/ESOP may make up the remainder.
+// Unpublished or unverifiable pay does not qualify (mirrors the down-level rule).
+function inrLpaFromText(text) {
+  const s = String(text || '');
+  let best = null;
+  const push = (v) => { if (Number.isFinite(v) && v > 0 && (best === null || v > best)) best = v; };
+  for (const m of s.matchAll(/(?:₹|INR|Rs\.?)\s?([\d]+(?:[.,]\d+)?)\s?(?:cr(?:ore)?s?)\b/gi)) push(Number(m[1].replace(',', '.')) * 100);
+  for (const m of s.matchAll(/([\d]+(?:[.,]\d+)?)\s?(?:cr(?:ore)?s?)\b/gi)) push(Number(m[1].replace(',', '.')) * 100);
+  for (const m of s.matchAll(/(?:₹|INR|Rs\.?)\s?([\d]+(?:[.,]\d+)?)\s?(?:lpa|lakhs?)\b/gi)) push(Number(m[1].replace(',', '')));
+  for (const m of s.matchAll(/([\d]+(?:[.,]\d+)?)\s?lpa\b/gi)) push(Number(m[1].replace(',', '')));
+  for (const m of s.matchAll(/(?:₹|INR|Rs\.?)\s?([\d][\d,]{6,})/g)) {
+    const v = Number(m[1].replace(/,/g, '')) / 100000;
+    if (v >= 50) push(v);
+  }
+  return best;
+}
+function relocationTermsOk(candidate, role) {
+  const t = candidate.relocation_conditional;
+  if (!t) return null;
+  const text = [role.salary || '', typeof role.pay === 'string' ? role.pay : '',
+    role.posting_text || role.description || role.text || ''].join(' | ').slice(0, 8000);
+  let payObjBest = null;
+  if (role.pay && typeof role.pay === 'object') {
+    const vals = [role.pay.totalMin, role.pay.vettedMin, role.pay.generalBaseMin]
+      .map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0).map((x) => x / 100000);
+    if (vals.length) payObjBest = Math.max(...vals);
+  }
+  const best = Math.max(inrLpaFromText(text) || 0, payObjBest || 0);
+  const cashSplit = /(cash|fixed|base)\b[^.]{0,80}(?:₹|INR|Rs\.?)/i.test(text) || /(?:₹|INR|Rs\.?)[^.]{0,60}(cash|fixed|base)\b/i.test(text);
+  if (best >= t.min_total_lpa) return { ok: true, lpa: best, cash_split: cashSplit };
+  return { ok: false, lpa: best || null, cash_split: false };
+}
+
 function onsiteGate(candidate, role) {
   const mode = String(role.mode || '').toLowerCase();
   if (!/on-?site|hybrid/.test(mode) || /remote/.test(mode)) return null;
@@ -274,6 +319,12 @@ function onsiteGate(candidate, role) {
   if (home.some((c) => loc.includes(c))) return null;
   const foreign = METROS.filter((m) => loc.includes(m) && !home.some((c) => c.includes(m) || m.includes(c)));
   if (!foreign.length) return null;
+  // Conditional relocation: pass the gate when pay evidence clears the bar.
+  if (candidate.relocation_conditional) {
+    const pay = relocationTermsOk(candidate, role);
+    if (pay && pay.ok) return null;
+    return `office-bound in ${foreign[0]} — outside candidate cities; pay evidence below the ₹${candidate.relocation_conditional.min_total_lpa} LPA relocation bar`;
+  }
   return `office-bound in ${foreign[0]} — outside candidate cities, relocation rejected`;
 }
 
@@ -287,6 +338,11 @@ function fastRelocation(candidate, role) {
   const loc = normCity(role.location || '');
   const home = (candidate.cities || []).map(normCity).filter(Boolean);
   if (loc && home.some((c) => loc.includes(c))) return 1;
+  // Conditional relocation with pay evidence: the candidate would accept.
+  if (candidate.relocation_conditional) {
+    const pay = relocationTermsOk(candidate, role);
+    if (pay && pay.ok) return 1;
+  }
   return null;
 }
 
@@ -510,10 +566,10 @@ const Q = {
     },
     relocation_ok: {
       type: 'noul',
-      instructions: `Candidate relocation_ok is \`candidate.relocation_ok\` and lives in \`candidate.cities\`. Does \`posting.posting_text\` force a relocation the candidate rejects? A role located in a candidate city, a fully remote role, or a posting that is silent about relocation all pass. Only an explicit requirement to move to (or work from) a place outside \`candidate.cities\` when relocation_ok is false fails.`,
+      instructions: `Candidate lives in \`candidate.cities\`; unconditional relocation acceptance is \`candidate.relocation_ok\`; conditional terms are \`candidate.relocation_conditional\`. Does \`posting.posting_text\` force a relocation the candidate rejects? A role in a candidate city, a fully remote role, or a posting silent on relocation all pass. An explicit relocation requirement outside the candidate cities passes when relocation_ok is true, or — when conditional terms are set — when the posting evidences pay meeting those floors (total above the total floor with at least the cash floor as cash; bonus/stock may cover the remainder). When relocation is required outside the cities and no qualifying pay is evidenced, it fails.`,
       criteria: {
-        true: 'In a candidate city, fully remote, silent on relocation, or candidate accepts relocation',
-        false: 'Explicitly requires moving to or being located outside the candidate cities, and relocation_ok is false',
+        true: 'In a candidate city, fully remote, silent on relocation, candidate accepts relocation, or pay-evidenced acceptance under conditional relocation terms',
+        false: 'Requires moving outside the candidate cities with relocation rejected — no qualifying pay evidence under the conditional terms',
       },
     },
   }),
@@ -1310,6 +1366,20 @@ function cmdSelftest() {
   ok('onsite gate passes remote anywhere', onsiteGate(hyd, { mode: 'remote', location: 'Delhi' }) === null);
   ok('onsite gate passes when relocation accepted',
     onsiteGate({ cities: ['Hyderabad'], relocation_ok: true }, { mode: 'on-site', location: 'Delhi' }) === null);
+  const cond = { cities: ['Hyderabad'], relocation_ok: false,
+    relocation_conditional: { min_total_lpa: 120, min_cash_lpa: 100, regions: ['India'] } };
+  ok('onsite gate allows conditional relocation with qualifying pay',
+    onsiteGate(cond, { mode: 'on-site', location: 'Bengaluru, India', salary: '₹1.35 Cr CTC' }) === null);
+  ok('onsite gate allows conditional relocation with crore text',
+    onsiteGate(cond, { mode: 'hybrid', location: 'Bengaluru, India', posting_text: 'We offer 1.4 crores total compensation.' }) === null);
+  ok('onsite gate still drops conditional relocation without pay evidence',
+    typeof onsiteGate(cond, { mode: 'on-site', location: 'Bengaluru, India' }) === 'string');
+  ok('onsite gate still drops conditional relocation below the bar',
+    typeof onsiteGate(cond, { mode: 'on-site', location: 'Bengaluru, India', salary: '₹85 LPA' }) === 'string');
+  ok('relocationTermsOk flags lakhs below bar',
+    relocationTermsOk(cond, { salary: '₹95 lakhs' }).ok === false);
+  ok('relocationTermsOk reads LPA above bar',
+    relocationTermsOk(cond, { salary: '₹125 LPA' }).ok === true);
   const hydCand = { cities: ['Hyderabad'], relocation_ok: false };
   ok('fastRelocation passes same-city hybrid',
     fastRelocation(hydCand, { mode: 'hybrid', location: 'Hyderabad, Telangana, India' }) === 1);
