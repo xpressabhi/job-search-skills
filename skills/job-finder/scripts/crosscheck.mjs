@@ -14,11 +14,13 @@
 //   --cv <path>        CV file for the fit + requirements calls (default: profile.cv.text_path
 //                      -> stored_path -> path)
 //   --max-gaps N       max must-have gaps allowed for a PRESENT verdict (default 1)
+//   --max-age N        ghost filter: drop postings older than N days (default 45; 0 disables)
 //   --strict           require BOTH rank and fit to reach good/strong (default: either)
 //   --out FILE         write the full verdict JSON
 //   --json             print the full verdict JSON instead of the human summary
 //
 // Gate (all must hold for PRESENT):
+//   0. not a ghost: publish date ≤ --max-age days, no evergreen/talent-pool language
 //   1. rank verdict is not `ineligible`
 //   2. rank label ∈ {good,strong} OR fit label ∈ {good,strong}  (both under --strict)
 //   3. must-have gaps ≤ --max-gaps (requirements; gaps are named on the role)
@@ -57,11 +59,29 @@ const { flags } = parseArgs(process.argv.slice(2));
 const profileFile = flags.profile;
 const rolesFile = flags.roles;
 if (!profileFile || !rolesFile) {
-  console.error('usage: crosscheck.mjs --profile <profile.json> --roles <roles.json> [--cv C] [--max-gaps N] [--strict] [--out F] [--json]');
+  console.error('usage: crosscheck.mjs --profile <profile.json> --roles <roles.json> [--cv C] [--max-gaps N] [--max-age N] [--strict] [--out F] [--json]');
   process.exit(2);
 }
 const maxGaps = flags['max-gaps'] !== undefined ? Number(flags['max-gaps']) : 1;
+const maxAge = flags['max-age'] !== undefined ? Number(flags['max-age']) : 45;
 const strict = !!flags.strict;
+
+// Ghost/freshness screen (user rule 2026-10-06) — deterministic, mirrored from jev.mjs.
+const GHOST_RE = /(evergreen|always hiring|talent (pool|pipeline|community|network)|general application|future opportunit|open application|speculative application|rolling basis|no specific (role|position|opening)|keep your (cv|resume|details) on file|join our talent)/i;
+function ghostReasons(role) {
+  const reasons = [];
+  const raw = String(role?.posted || role?.posted_at || '').trim();
+  let age = null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    const d = new Date(raw.slice(0, 10) + 'T00:00:00Z');
+    if (!Number.isNaN(d.getTime())) age = Math.floor((Date.now() - d.getTime()) / 86400000);
+  }
+  if (age !== null && maxAge > 0 && age > maxAge) reasons.push(`stale/ghost — posted ${age} days ago (> ${maxAge})`);
+  const text = String(role?.posting_text || role?.description || role?.text || '');
+  const m = text.slice(0, 4000).match(GHOST_RE);
+  if (m) reasons.push(`ghost language — "${m[0]}"`);
+  return { age, reasons };
+}
 const cvPath = readCvPath(profileFile, flags.cv);
 if (!cvPath) {
   console.error('error: no CV path (pass --cv, or set profile.cv.text_path)');
@@ -90,6 +110,8 @@ for (const role of roles) {
     company: role.company || '',
     title: role.title || '',
     url: role.url || '',
+    posted: role.posted || null,
+    age_days: null,
     rank: null,
     fit: null,
     gaps: [],
@@ -97,6 +119,14 @@ for (const role of roles) {
     verdict: 'DROP',
     reason: '',
   };
+  // Ghost screen first — deterministic, costs no Jev calls.
+  const ghost = ghostReasons(role);
+  row.age_days = ghost.age;
+  if (ghost.reasons.length) {
+    row.reason = ghost.reasons.join('; ');
+    results.push(row);
+    continue;
+  }
   try {
     const rank = rankById.get(id) || null;
     if (!rank) throw new Error(rankError ? `rank unavailable: ${rankError}` : 'no rank verdict for this role id');

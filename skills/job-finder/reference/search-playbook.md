@@ -5,17 +5,26 @@ The workflow in `SKILL.md` is the contract; this file is the craft. Read the pro
 this file says "the user's floors/regions", read the actual values from the profile; nothing here
 overrides them.
 
-## 1. Freshness window
+## 1. Freshness & ghosts (user rule 2026-10-06: filter ghosts, prefer new)
 
-Sort every portal newest-first and read the posting's publish date (Greenhouse/Ashby/Lever/Workday
-all show one; for boards without dates, newest-first order is the signal).
+Sort every portal newest-first and read the posting's own publish date (Greenhouse/Ashby/Lever/
+Workday all show one; for boards without dates, newest-first order is the signal).
 
-- **Within `search.freshness_days`** (profile, default 7): always eligible; record `posted_at`.
-- **Older but new to the tracker and top-tier fit**: surface, ranked below fresher roles, flagged
-  `(stale, posted YYYY-MM-DD)`; set `posted_at`. A slow pipeline beats no pipeline.
-- **Already in the tracker** with any status except `interested`: never re-surface. The
-  `tracker seen` check is the hard gate and runs on every candidate *before* ranking.
-- Skip stale roles that are partial-fit, below the comp floor, or failing any exclusion.
+- **≤ `search.freshness_days`** (profile, default 7): first-class; record `posted`. `rank` adds a
+  deterministic +0.03 ordering nudge (labels unchanged) and the report lists these first.
+- **8–45 days:** eligible but aging — `rank` −0.03 nudge, row flagged `(posted YYYY-MM-DD)`.
+  A slow pipeline still beats no pipeline, but it never outranks fresh.
+- **> 45 days:** ghosts. Drop before fetch/rank; count into "ghost/stale — skipped: N". Override
+  only with the user's explicit permission (`--max-age`).
+- **Evergreen language** ("always hiring", "talent pool", "general application", "future
+  opportunities", "rolling basis", "keep your CV on file", "no specific role"): ghosts regardless
+  of date; drop and count.
+- **Date unknown:** fetch the page and read it; still unknown → flag `date: unknown`, rank below
+  dated peers. Never present an undated stale-looking repost.
+- **Already in the tracker** with any status except `interested`: never re-surface (hard gate,
+  runs before ranking).
+- Deterministic ghost checks live in `jev.mjs` (`rank`/`triage`/`liveness` info) and
+  `crosscheck.mjs` (gate item 0) — no model calls, fail-closed.
 
 ## 2. Per-portal sweep technique
 

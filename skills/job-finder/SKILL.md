@@ -102,6 +102,15 @@ drops never spend a Jev call):
 2. **Exclusions** — ignored companies (`tracker.mjs company list`) are never fetched or surfaced;
    profile `search.company_rules` (product-only, excluded types/companies) and relocation per
    playbook §9–§10. The `seen` check also warns on stderr if a role sneaks in from an ignored company.
+2.5 **Ghost & freshness screen (deterministic, free)** — user rule 2026-10-06: filter ghost jobs,
+   prefer newly posted. Drop before any fetch/rank call when:
+   - the posting's own publish date is **older than 45 days** (`--max-age` to override); or
+   - the text reads evergreen/talent-pool ("always hiring", "talent pool", "general application",
+     "future opportunities", "rolling basis", "keep your CV on file").
+   Count drops into a "ghost/stale — skipped: N" line. Every candidate records `--posted
+   YYYY-MM-DD`; when the source hides it, fetch the page and read the date; still unknown → flag
+   `date: unknown` and rank below dated peers. `rank`/`triage`/`crosscheck` enforce this in code
+   (fresher = +0.03 ≤ 7 days, −0.03 > 30 days, labels unchanged).
 3. **Liveness** — `jev.mjs liveness --page <fetched-text> --role <role.json>`; `dead`/
    `suspicious` → drop and count into a "dead/expired — skipped: N" line; `unverified` →
    keep but flag `unverified` (playbook §9a). Anti-bot blocked → retry once, then keep
@@ -122,7 +131,8 @@ drops never spend a Jev call):
    requires the user to ask for it explicitly.
 
 Record the posting's own publish date as `--posted YYYY-MM-DD` (empty if not shown) and the exact
-canonical ATS URL — both are reused verbatim in the report.
+canonical ATS URL — both are reused verbatim in the report. Order the final list freshest first:
+fresh (≤ `search.freshness_days`) roles above stale-flagged ones at equal fit.
 
 New strong sources get remembered: after the sweep, `tracker.mjs company add "<Company>" <portal>
 [--ats X]` for any company that yielded several good roles or that the user wants watched — future
@@ -140,11 +150,13 @@ role — rank honestly.
 
 ### The Jev cross-check gate — mandatory before any role is presented
 
-    node scripts/crosscheck.mjs --profile <profile.json> --roles <shortlist.json> [--max-gaps 1] [--strict] [--out F]
+    node scripts/crosscheck.mjs --profile <profile.json> --roles <shortlist.json> [--max-gaps 1] [--max-age 45] [--strict] [--out F]
 
-Composes the full evidence per role — rank (eligibility + fit, profile), fit (CV),
-requirements (must-have gaps), redflags (survivors) — into a hard **PRESENT / DROP** verdict.
-PRESENT requires all of: rank not `ineligible`; rank **or** fit reaches `good`/`strong`
+Composes the full evidence per role — ghost/freshness (deterministic first), rank
+(eligibility + fit, profile), fit (CV), requirements (must-have gaps), redflags (survivors)
+— into a hard **PRESENT / DROP** verdict.
+PRESENT requires all of: not a ghost (posted ≤ `--max-age` days — default 45 — and no
+evergreen/talent-pool language); rank not `ineligible`; rank **or** fit reaches `good`/`strong`
 (`--strict`: both); must-have gaps ≤ `--max-gaps` (default 1, each one disclosed on the row);
 no red-flag hits. Fail-closed: a Jev error drops the role. Exit 0 when at least one role
 presents, 1 otherwise.
@@ -156,7 +168,8 @@ Name every gap the gate surfaced (`jev.mjs requirements` gap text) on the role's
 
 ## Step 4 — Deliver a ranked report
 
-Only cross-check PRESENT roles, 10–15 max, mixed modes when the profile allows. Columns:
+Only cross-check PRESENT roles, 10–15 max, mixed modes when the profile allows — freshest
+first (fresh ≤ `search.freshness_days` above stale-flagged, equal fit). Columns:
 
 **Role & Company** (link — ALWAYS the live posting on the company's own portal/ATS; aggregators are
 discovery-only) · **Salary** (published, else `estimate: …`) · **Mode** (remote / hybrid X days /
@@ -173,9 +186,9 @@ Referral-first is the profile's channel rule: for the roles that reach the repor
 moves"; a 0-path role at a low-yield company is flagged, not sold as a cold-apply opportunity.
 
 Add skip lines where relevant: "previously surfaced — skipped: N", "already applied — skipped: N",
-"dead/expired — skipped: N", and one coverage line — "swept N companies — M had no matching roles"
-— so the user can see the sweep really happened. After the report, offer: tailor the CV for a role,
-draft outreach to the top 3, or apply now (hand off to the **apply-to-jobs** skill).
+"dead/expired — skipped: N", "ghost/stale — skipped: N", and one coverage line — "swept N companies
+— M had no matching roles" — so the user can see the sweep really happened. After the report, offer:
+tailor the CV for a role, draft outreach to the top 3, or apply now (hand off to the **apply-to-jobs** skill).
 
 ## Step 5 — Update statuses from the user's reaction
 

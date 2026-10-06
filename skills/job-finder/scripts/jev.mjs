@@ -141,6 +141,31 @@ async function systemOne(state, questions, { model = DEFAULT_MODEL, timeoutMs = 
 
 const YES = 0.7, NO = 0.3;
 
+// ---- Ghost jobs & freshness (deterministic; no model calls) ----------------
+// USER RULE (2026-10-06): filter out ghost jobs and prefer newly posted roles.
+// A posting older than GHOST_MAX_AGE_DAYS, or one written as an evergreen /
+// talent-pool / general-application funnel, is a ghost: drop it, don't rank it.
+const GHOST_RE = /(evergreen|always hiring|talent (pool|pipeline|community|network)|general application|future opportunit|open application|speculative application|rolling basis|no specific (role|position|opening)|keep your (cv|resume|details) on file|join our talent)/i;
+const GHOST_MAX_AGE_DAYS = 45;
+const FRESH_DAYS = 7;      // bonus band
+const AGING_DAYS = 30;     // penalty band
+function postedAgeDays(role) {
+  const raw = String(role?.posted || role?.posted_at || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}/.test(raw)) return null;
+  const d = new Date(raw.slice(0, 10) + 'T00:00:00Z');
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+function ghostInfo(role, maxAge = GHOST_MAX_AGE_DAYS) {
+  const age = postedAgeDays(role);
+  const text = String(role?.posting_text || role?.description || role?.text || role?.snippet || '');
+  const m = text.slice(0, 4000).match(GHOST_RE);
+  const reasons = [];
+  if (age !== null && maxAge > 0 && age > maxAge) reasons.push(`stale/ghost — posted ${age} days ago (> ${maxAge})`);
+  if (m) reasons.push(`ghost language — "${m[0]}"`);
+  return { age_days: age, ghost: reasons.length > 0, reasons };
+}
+
 function eligibilityVerdict(a) {
   const g = (id) => a[id]?.noul;
   const reasons = [];
@@ -900,6 +925,7 @@ async function cmdRank(opts) {
   const candidate = redactProfile(profile);
   const eligQ = Q.eligibility(candidate), fitQ = Q.fit();
   const lowYield = opts['--no-history'] ? new Set() : lowYieldSet();
+  const maxAge = opts['--max-age'] !== undefined ? Number(opts['--max-age']) : GHOST_MAX_AGE_DAYS;
   const base = { id: null, url: '', company: '', title: '', verdict: 'ineligible',
     reasons: [], composite: 0, label: 'weak' };
   const results = await pMap(roles, 4, async (r) => {
@@ -908,6 +934,12 @@ async function cmdRank(opts) {
     if (gateHit) {
       return { ...base, id: r.id ?? null, url: r.url || '', company: r.company || '',
         title: r.title || '', reasons: [gateHit], deterministic: true };
+    }
+    // Ghost screen (user rule 2026-10-06): stale/evergreen postings are dropped.
+    const ghost = ghostInfo(r, maxAge);
+    if (ghost.ghost) {
+      return { ...base, id: r.id ?? null, url: r.url || '', company: r.company || '',
+        title: r.title || '', reasons: ghost.reasons, deterministic: true, age_days: ghost.age_days };
     }
     // Empty description ⇒ nothing to score. Never let a Jev call invent
     // coverage from a title alone; rank stays honest instead of fabricating.
@@ -942,19 +974,26 @@ async function cmdRank(opts) {
         finalComposite = Math.max(0, finalComposite - 0.15);
         reasons.push(`low-yield company (${r.company}: 3+ applied, none advanced)`);
       }
+      // Prefer newly posted roles (ordering nudge only — labels are unchanged).
+      const age = ghost.age_days;
+      if (age !== null) {
+        if (age <= FRESH_DAYS) { finalComposite = Math.min(1, finalComposite + 0.03); reasons.push(`fresh (posted ${age}d ago)`); }
+        else if (age > AGING_DAYS) { finalComposite = Math.max(0, finalComposite - 0.03); reasons.push(`aging (posted ${age}d ago)`); }
+      }
       if (verdict === 'eligible' && gated.label !== 'strong' && gated.label !== 'good'
         && a.requirement_coverage.score < 2.0) verdict = 'unverified';
       return { id: r.id ?? null, url: r.url || '', company: r.company || '', title: r.title || '',
         verdict, reasons, composite: Math.round(finalComposite * 1000) / 1000, label: gated.label,
         level: levelBackstop(r.title, a.level_match?.choice) ?? null,
-        coverage: Math.round((a.requirement_coverage?.score ?? 0) * 100) / 100 };
+        coverage: Math.round((a.requirement_coverage?.score ?? 0) * 100) / 100,
+        age_days: age };
     } catch (err) {
       return { id: r.id ?? null, url: r.url || '', company: r.company || '', title: r.title || '',
         verdict: 'unverified', reasons: [`jev error: ${err.message || err}`], composite: 0, label: 'weak' };
     }
   });
   const order = { eligible: 0, unverified: 1, ineligible: 2 };
-  results.sort((a, b) => (order[a.verdict] - order[b.verdict]) || (b.composite - a.composite));
+  results.sort((a, b) => (order[a.verdict] - order[b.verdict]) || (b.composite - a.composite) || ((a.age_days ?? 9999) - (b.age_days ?? 9999)));
   const limit = Number(opts['--limit'] || 0);
   return { model: DEFAULT_MODEL, count: results.length, roles: limit > 0 ? results.slice(0, limit) : results };
 }
@@ -969,7 +1008,10 @@ async function cmdLiveness(opts) {
   const verdict = n('is_expired') >= YES || n('is_wrong_role') >= YES ? 'dead'
     : n('looks_suspicious') >= YES ? 'suspicious'
     : Math.max(n('is_expired'), n('is_wrong_role'), n('looks_suspicious')) > 0.4 ? 'unverified' : 'live';
-  return { verdict, nouls: Object.fromEntries(Object.entries(data.answers).map(([k, v]) => [k, v.noul])), model: data.model };
+  const ghost = ghostInfo(meta);
+  return { verdict, ...(ghost.age_days !== null ? { age_days: ghost.age_days } : {}),
+    ...(ghost.ghost ? { ghost_reasons: ghost.reasons } : {}),
+    nouls: Object.fromEntries(Object.entries(data.answers).map(([k, v]) => [k, v.noul])), model: data.model };
 }
 
 async function cmdRedflags(opts) {
@@ -1114,10 +1156,13 @@ async function cmdTriage(opts) {
   const listings = asJson(readOpt(opts['--listings']), '--listings');
   if (!Array.isArray(listings)) fail('--listings must be a JSON array');
   const candidate = redactProfile(profile);
+  const maxAge = opts['--max-age'] !== undefined ? Number(opts['--max-age']) : GHOST_MAX_AGE_DAYS;
   const results = await pMap(listings, 4, async (l) => {
     const base = { id: l.id ?? null, company: l.company || '', title: l.title || '', url: l.url || '' };
     const gateHit = onsiteGate(candidate, { mode: l.mode || '', location: l.location || '' });
     if (gateHit) return { ...base, verdict: 'skip', reasons: [gateHit], deterministic: true };
+    const ghost = ghostInfo({ posted: l.posted || l.posted_at || '', snippet: l.snippet || l.description || '' }, maxAge);
+    if (ghost.ghost) return { ...base, verdict: 'skip', reasons: ghost.reasons, deterministic: true, age_days: ghost.age_days };
     const state = {
       candidate,
       listing: { title: l.title || '', company: l.company || '', location: l.location || '',
@@ -1359,7 +1404,7 @@ const HELP = `jev.mjs — Jev judgments for job-finder + apply-to-jobs (needs TY
 
   eligibility --profile P --posting J      eligible|unverified|ineligible + reasons
   fit --cv C --posting J                   scores + composite 0..1 + label
-  rank --profile P --roles R.json [--limit N] [--no-history]  one fan-out call per role, sorted
+  rank --profile P --roles R.json [--limit N] [--no-history] [--max-age D]  one fan-out per role; ghosts (>D days, evergreen) dropped; fresh preferred (default D=45)
   liveness --page T --role J               live|dead|suspicious|unverified
   redflags --posting J                     scam/surveillance/bodyshop flags
   knockout --profile P --posting J [--form T]  true + hits before apply fills
@@ -1368,7 +1413,7 @@ const HELP = `jev.mjs — Jev judgments for job-finder + apply-to-jobs (needs TY
   same-role --a A.json --b B.json          LinkedIn-vs-ATS duplicate check
   applied-guard --page T                   already-applied banner check
   company-screen --profile P --company C [--context T]   sweep|maybe|skip before fetching a board
-  triage --profile P --listings L.json     fetch|maybe|skip per listing before fetching postings
+  triage --profile P --listings L.json [--max-age D]  fetch|maybe|skip; stale/evergreen listings skip (default D=45)
   requirements --profile P --posting J [--cv C] [--max-gaps N]   must-haves + gaps + coverage
   salary-parse --posting J                 published base salary: raw + parsed band
   rejection-reason --text T                location|comp|level|stack|domain|track|sponsorship|unknown
