@@ -118,10 +118,16 @@ drops never spend a Jev call):
 4. **Eligibility** — `jev.mjs eligibility --profile <profile.json> --posting <posting.json>`
    (remote region + timezone + payroll + auth + relocation, playbook §9). `ineligible` =
    skip; `unverified` = keep, ranked below `eligible`.
-5. **Comp floor** from the profile — below floor = skip (numeric check in code, never Jev). When the
-   posting publishes pay, `jev.mjs salary-parse --posting <posting.json>` extracts the base band
-   (`raw`, currency, min/max, unit) for that check and the report's Salary column; a `unit` of
-   `unknown` means unpublished — say so instead of guessing.
+5. **Comp floor & estimation** from the profile — below floor = skip (numeric check in code, never
+   Jev). When the posting publishes pay, `jev.mjs salary-parse --posting <posting.json>` extracts the
+   base band for that check and the report's Salary column. When pay is unpublished, run
+   `scripts/payest.mjs estimate --role <role.json>` — the evidence ladder: published → **observed**
+   bands for the company (`~/.job-search/comp-bands.json`) → vetted floor → unknown. Comp-gated
+   screens (relocation, down-level surfacing) may pass on **observed** evidence, disclosed as
+   `comp est ₹X–Y — verify with recruiter`; `unknown` keeps the conservative default (never assume
+   pay). Grow the store whenever real pay is seen (posting, recruiter call, offer):
+   `payest.mjs set "<company>" --min L --max L --source "<evidence>"`; `payest.mjs import` refreshes
+   from job-radar's observed evidence and vetted floors.
 6. **Level + stack match (strict by default)** — `jev.mjs rank` over the whole shortlist
    (§3). Level mismatch (below or above the candidate band) and missing named requirements
    (`requirement_coverage` < 1.5) drop the role — when level doesn't match, comp and

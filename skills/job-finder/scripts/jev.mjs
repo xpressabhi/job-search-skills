@@ -292,6 +292,29 @@ function inrLpaFromText(text) {
   }
   return best;
 }
+// Evidence ladder for no-salary postings (2026-10-06): published pay → observed
+// bands for the company (payest store) → vetted floor → unknown. Comp-gated
+// decisions may pass on observed evidence, flagged for recruiter verification;
+// they must not assume pay when evidence is unknown.
+const compBandsPath = () => path.join(process.env.JOB_SEARCH_HOME || path.join(os.homedir(), '.job-search'), 'comp-bands.json');
+let _compBands = null;
+function compBands() {
+  if (_compBands === null) {
+    try { _compBands = JSON.parse(fs.readFileSync(compBandsPath(), 'utf8')).companies || {}; }
+    catch { _compBands = {}; }
+  }
+  return _compBands;
+}
+function bandFor(company) {
+  const k = String(company || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!k) return null;
+  const bands = compBands();
+  if (bands[k]) return bands[k];
+  for (const [ek, ev] of Object.entries(bands)) {
+    if (ek && (ek.includes(k) || k.includes(ek))) return ev;
+  }
+  return null;
+}
 function relocationTermsOk(candidate, role) {
   const t = candidate.relocation_conditional;
   if (!t) return null;
@@ -305,7 +328,14 @@ function relocationTermsOk(candidate, role) {
   }
   const best = Math.max(inrLpaFromText(text) || 0, payObjBest || 0);
   const cashSplit = /(cash|fixed|base)\b[^.]{0,80}(?:₹|INR|Rs\.?)/i.test(text) || /(?:₹|INR|Rs\.?)[^.]{0,60}(cash|fixed|base)\b/i.test(text);
-  if (best >= t.min_total_lpa) return { ok: true, lpa: best, cash_split: cashSplit };
+  if (best >= t.min_total_lpa) return { ok: true, lpa: best, cash_split: cashSplit, basis: 'published' };
+  // No qualifying published pay — consult the estimation store before denying.
+  const band = bandFor(role.company);
+  if (band && Number.isFinite(band.max_lpa) && band.max_lpa >= t.min_total_lpa
+    && (band.min_lpa == null || band.min_lpa >= t.min_cash_lpa * 0.8)) {
+    return { ok: true, estimated: true, basis: `comp-estimate (${band.confidence || 'observed'})`,
+      lpa_min: band.min_lpa ?? null, lpa_max: band.max_lpa, cash_split: false, sources: band.sources || [] };
+  }
   return { ok: false, lpa: best || null, cash_split: false };
 }
 
@@ -1036,6 +1066,15 @@ async function cmdRank(opts) {
         if (age <= FRESH_DAYS) { finalComposite = Math.min(1, finalComposite + 0.03); reasons.push(`fresh (posted ${age}d ago)`); }
         else if (age > AGING_DAYS) { finalComposite = Math.max(0, finalComposite - 0.03); reasons.push(`aging (posted ${age}d ago)`); }
       }
+      // Comp-context disclosure for comp-gated decisions (relocation / estimates).
+      if (candidate.relocation_conditional) {
+        const ra = relocationTermsOk(candidate, r);
+        if (ra && ra.ok && ra.estimated) {
+          reasons.push(`relocation enabled by ${ra.basis} ₹${ra.lpa_min ?? '?'}–${ra.lpa_max}L — verify pay with recruiter`);
+        } else if (ra && ra.ok && ra.basis === 'published' && !ra.cash_split) {
+          reasons.push(`relocation bar met on published pay — confirm cash split ≥ ₹${candidate.relocation_conditional.min_cash_lpa}L with recruiter`);
+        }
+      }
       if (verdict === 'eligible' && gated.label !== 'strong' && gated.label !== 'good'
         && a.requirement_coverage.score < 2.0) verdict = 'unverified';
       return { id: r.id ?? null, url: r.url || '', company: r.company || '', title: r.title || '',
@@ -1380,6 +1419,30 @@ function cmdSelftest() {
     relocationTermsOk(cond, { salary: '₹95 lakhs' }).ok === false);
   ok('relocationTermsOk reads LPA above bar',
     relocationTermsOk(cond, { salary: '₹125 LPA' }).ok === true);
+  {
+    // Evidence-ladder test with an isolated comp-bands store.
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'payest-test-'));
+    const prevHome = process.env.JOB_SEARCH_HOME;
+    process.env.JOB_SEARCH_HOME = tmpHome;
+    try {
+      fs.writeFileSync(path.join(tmpHome, 'comp-bands.json'), JSON.stringify({
+        companies: { acme: { min_lpa: 130, max_lpa: 180, confidence: 'observed' } },
+      }));
+      _compBands = null;
+      const ra = relocationTermsOk(cond, { company: 'Acme', mode: 'onsite', location: 'Bengaluru, India' });
+      ok('comp estimate enables relocation when observed band clears the bar', ra && ra.ok === true && ra.estimated === true);
+      fs.writeFileSync(path.join(tmpHome, 'comp-bands.json'), JSON.stringify({
+        companies: { acme: { min_lpa: 40, max_lpa: 80, confidence: 'observed' } },
+      }));
+      _compBands = null;
+      const ra2 = relocationTermsOk(cond, { company: 'Acme', mode: 'onsite', location: 'Bengaluru, India' });
+      ok('comp estimate below the bar still drops', !(ra2 && ra2.ok));
+    } finally {
+      process.env.JOB_SEARCH_HOME = prevHome;
+      _compBands = null;
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  }
   const hydCand = { cities: ['Hyderabad'], relocation_ok: false };
   ok('fastRelocation passes same-city hybrid',
     fastRelocation(hydCand, { mode: 'hybrid', location: 'Hyderabad, Telangana, India' }) === 1);

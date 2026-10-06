@@ -197,8 +197,13 @@ history predating the posting) · money flow (direct wire or named EOR only).
 - **Warm path** (profile channel rule): a role with 1st-degree coverage at the company outranks an
   otherwise equal cold role — `scripts/warm-path.mjs "<company>"` supplies the signal (1st-degree
   names, 2nd-degree count) for the report's "next moves".
-- Published ranges strongly preferred; when absent, write `estimate: <X>` and rank below roles that
-  publish. Note equity-only-heavy offers and flag if base is below the floor.
+- Published ranges strongly preferred; when absent, **estimate before dismissing**
+  (`scripts/payest.mjs estimate --role R.json`, evidence ladder published → observed → floor →
+  unknown) and write `estimate: ₹X–Y (basis)`; unknown stays `not published (comp unverified)` and
+  ranks below dated/published peers. Comp-gated decisions (relocation, down-level surfacing) may
+  pass on observed evidence — always with `verify pay with recruiter`. Note equity-only-heavy
+  offers and flag if base is below the floor. Every real range encountered (posting or recruiter
+  call) gets recorded: `payest.mjs set "<company>" --min L --max L --source "<evidence>"`.
 - Cross-mode comparison: convert everything to the user's primary currency at a consistent rate
   (state the rate assumption once) before ordering the report.
 - **Benchmark like this, never from one source:** triangulate at least two (BLS OEWS by SOC code,
