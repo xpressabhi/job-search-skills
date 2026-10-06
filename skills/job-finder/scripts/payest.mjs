@@ -90,7 +90,8 @@ export function estimate({ store, company, title, postingText, salaryText }) {
   if (hit) {
     const e = hit.entry;
     if (e.max_lpa != null && e.min_lpa != null) {
-      return { basis: 'observed', confidence: e.confidence || 'observed', min_lpa: e.min_lpa, max_lpa: e.max_lpa, sources: e.sources || [] };
+      return { basis: 'observed', confidence: e.confidence || 'observed', min_lpa: e.min_lpa, max_lpa: e.max_lpa,
+        cash_lpa: e.cash_lpa ?? null, cash_min_lpa: e.cash_min_lpa ?? null, sources: e.sources || [] };
     }
     if (e.floor_lpa != null) {
       const senior = /\b(staff|principal|senior|sr\.?|lead|architect)\b/i.test(title || '');
@@ -99,6 +100,30 @@ export function estimate({ store, company, title, postingText, salaryText }) {
     }
   }
   return { basis: 'unknown', confidence: 'unknown', min_lpa: null, max_lpa: null, sources: [] };
+}
+
+// ---- merge: ingest a JSON array of {name,min_lpa,max_lpa,cash_lpa,cash_min_lpa,source,levels} ----
+function runMerge(file) {
+  const store = load();
+  const items = JSON.parse(fs.readFileSync(file, 'utf8'));
+  let n = 0;
+  for (const it of items) {
+    if (!it.name || it.max_lpa == null) continue;
+    const k = key(it.name);
+    const entry = store.companies[k] || {};
+    entry.min_lpa = entry.min_lpa == null ? it.min_lpa : Math.min(entry.min_lpa, it.min_lpa ?? entry.min_lpa);
+    entry.max_lpa = entry.max_lpa == null ? it.max_lpa : Math.max(entry.max_lpa, it.max_lpa);
+    if (it.cash_lpa != null) entry.cash_lpa = entry.cash_lpa == null ? it.cash_lpa : Math.max(entry.cash_lpa, it.cash_lpa);
+    if (it.cash_min_lpa != null) entry.cash_min_lpa = entry.cash_min_lpa == null ? it.cash_min_lpa : Math.max(entry.cash_min_lpa, it.cash_min_lpa);
+    entry.confidence = 'observed';
+    entry.sources = [...new Set([...(entry.sources || []), String(it.source || 'merge').slice(0, 140)])].slice(0, 5);
+    if (it.levels) entry.levels = it.levels;
+    entry.updated = new Date().toISOString().slice(0, 10);
+    store.companies[k] = entry;
+    n++;
+  }
+  save(store);
+  console.log(`merged ${n} record(s) → ${STORE} (${Object.keys(store.companies).length} companies)`);
 }
 
 // ---- import from job-radar -------------------------------------------------
@@ -148,6 +173,9 @@ const { pos, flags } = parseArgs(process.argv.slice(2));
 const cmd = pos[0];
 if (cmd === 'import') {
   runImport();
+} else if (cmd === 'merge') {
+  if (!pos[1]) { console.error('usage: payest merge <file.json>'); process.exit(2); }
+  runMerge(pos[1]);
 } else if (cmd === 'estimate') {
   const store = load();
   let company = flags.company || '';
@@ -180,7 +208,8 @@ if (cmd === 'import') {
   const rows = Object.entries(store.companies).sort((a, b) => (b[1].max_lpa ?? b[1].senior_floor_lpa ?? 0) - (a[1].max_lpa ?? a[1].senior_floor_lpa ?? 0));
   for (const [k, e] of rows) {
     const band = e.min_lpa != null ? `₹${e.min_lpa}–${e.max_lpa ?? '?'}L` : e.senior_floor_lpa != null ? `floor ₹${e.floor_lpa ?? '?'}/₹${e.senior_floor_lpa}L` : '';
-    console.log(`${k.padEnd(28)} ${band.padEnd(22)} [${e.confidence || '?'}] ${(e.sources || [])[0] || ''}`.slice(0, 140));
+    const cash = e.cash_lpa != null ? ` cash~₹${e.cash_lpa}L` : '';
+    console.log(`${k.padEnd(28)} ${(band + cash).padEnd(32)} [${e.confidence || '?'}] ${(e.sources || [])[0] || ''}`.slice(0, 150));
   }
   console.log(`total: ${rows.length} companies`);
 } else {

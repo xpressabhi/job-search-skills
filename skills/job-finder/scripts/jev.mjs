@@ -332,9 +332,11 @@ function relocationTermsOk(candidate, role) {
   // No qualifying published pay — consult the estimation store before denying.
   const band = bandFor(role.company);
   if (band && Number.isFinite(band.max_lpa) && band.max_lpa >= t.min_total_lpa
-    && (band.min_lpa == null || band.min_lpa >= t.min_cash_lpa * 0.8)) {
+    && (band.min_lpa == null || band.min_lpa >= t.min_cash_lpa * 0.8)
+    && (band.cash_lpa == null || band.cash_lpa >= t.min_cash_lpa)) {
     return { ok: true, estimated: true, basis: `comp-estimate (${band.confidence || 'observed'})`,
-      lpa_min: band.min_lpa ?? null, lpa_max: band.max_lpa, cash_split: false, sources: band.sources || [] };
+      lpa_min: band.min_lpa ?? null, lpa_max: band.max_lpa, cash_lpa: band.cash_lpa ?? null,
+      cash_split: false, sources: band.sources || [] };
   }
   return { ok: false, lpa: best || null, cash_split: false };
 }
@@ -1070,7 +1072,7 @@ async function cmdRank(opts) {
       if (candidate.relocation_conditional) {
         const ra = relocationTermsOk(candidate, r);
         if (ra && ra.ok && ra.estimated) {
-          reasons.push(`relocation enabled by ${ra.basis} ₹${ra.lpa_min ?? '?'}–${ra.lpa_max}L — verify pay with recruiter`);
+          reasons.push(`relocation enabled by ${ra.basis} ₹${ra.lpa_min ?? '?'}–${ra.lpa_max}L${ra.cash_lpa ? ` (cash est ₹${ra.cash_lpa}L)` : ''} — verify pay with recruiter`);
         } else if (ra && ra.ok && ra.basis === 'published' && !ra.cash_split) {
           reasons.push(`relocation bar met on published pay — confirm cash split ≥ ₹${candidate.relocation_conditional.min_cash_lpa}L with recruiter`);
         }
