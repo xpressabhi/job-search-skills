@@ -128,6 +128,12 @@ drops never spend a Jev call):
    pay). Grow the store whenever real pay is seen (posting, recruiter call, offer):
    `payest.mjs set "<company>" --min L --max L --source "<evidence>"`; `payest.mjs import` refreshes
    from job-radar's observed evidence and vetted floors.
+   **India estimate methodology (user rule 2026-10-06):** refresh from levels.fyi's per-level data
+   (`__NEXT_DATA__` averages → `payest merge --replace`, at least monthly), use **staff+ IC levels
+   only**, and anchor on **cash = base + bonus** — tenured totals inflate with stock appreciation
+   and must never drive a comp-gated pass; stock/RSU/ESOP is only the remainder toward the total
+   floor. Record recency (12-month counts, median-offer date) in the source string. No data → unknown,
+   never a guess.
 6. **Level + stack match (strict by default)** — `jev.mjs rank` over the whole shortlist
    (§3). Level mismatch (below or above the candidate band) and missing named requirements
    (`requirement_coverage` < 1.5) drop the role — when level doesn't match, comp and

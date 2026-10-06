@@ -202,8 +202,11 @@ history predating the posting) · money flow (direct wire or named EOR only).
   unknown) and write `estimate: ₹X–Y (basis)`; unknown stays `not published (comp unverified)` and
   ranks below dated/published peers. Comp-gated decisions (relocation, down-level surfacing) may
   pass on observed evidence — always with `verify pay with recruiter`. Note equity-only-heavy
-  offers and flag if base is below the floor. Every real range encountered (posting or recruiter
-  call) gets recorded: `payest.mjs set "<company>" --min L --max L --source "<evidence>"`.
+  offers and flag if base is below the floor. India estimates follow the user rule: **staff+ IC
+  levels only, cash = base + bonus as the anchor**, refreshed from levels.fyi monthly (tenured
+  stock-appreciation-inflated totals excluded; note submission recency). Every real range
+  encountered (posting or recruiter call) gets recorded:
+  `payest.mjs set "<company>" --min L --max L --source "<evidence>"`.
 - Cross-mode comparison: convert everything to the user's primary currency at a consistent rate
   (state the rate assumption once) before ordering the report.
 - **Benchmark like this, never from one source:** triangulate at least two (BLS OEWS by SOC code,

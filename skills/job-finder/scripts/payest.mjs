@@ -103,18 +103,34 @@ export function estimate({ store, company, title, postingText, salaryText }) {
 }
 
 // ---- merge: ingest a JSON array of {name,min_lpa,max_lpa,cash_lpa,cash_min_lpa,source,levels} ----
-function runMerge(file) {
+function runMerge(file, replace = false) {
   const store = load();
   const items = JSON.parse(fs.readFileSync(file, 'utf8'));
   let n = 0;
   for (const it of items) {
-    if (!it.name || it.max_lpa == null) continue;
+    if (!it.name) continue;
     const k = key(it.name);
     const entry = store.companies[k] || {};
-    entry.min_lpa = entry.min_lpa == null ? it.min_lpa : Math.min(entry.min_lpa, it.min_lpa ?? entry.min_lpa);
-    entry.max_lpa = entry.max_lpa == null ? it.max_lpa : Math.max(entry.max_lpa, it.max_lpa);
-    if (it.cash_lpa != null) entry.cash_lpa = entry.cash_lpa == null ? it.cash_lpa : Math.max(entry.cash_lpa, it.cash_lpa);
-    if (it.cash_min_lpa != null) entry.cash_min_lpa = entry.cash_min_lpa == null ? it.cash_min_lpa : Math.max(entry.cash_min_lpa, it.cash_min_lpa);
+    if (it.clear_band) {
+      entry.min_lpa = null; entry.max_lpa = null; entry.cash_lpa = null; entry.cash_min_lpa = null;
+      entry.no_staff_band = true;
+      entry.sources = [...new Set([...(entry.sources || []), String(it.source || 'no staff band')])].slice(0, 5);
+      store.companies[k] = entry; n++;
+      continue;
+    }
+    if (it.max_lpa == null) continue;
+    if (replace) {
+      entry.min_lpa = it.min_lpa ?? entry.min_lpa;
+      entry.max_lpa = it.max_lpa;
+      entry.cash_lpa = it.cash_lpa ?? null;
+      entry.cash_min_lpa = it.cash_min_lpa ?? null;
+      entry.source_replaced = it.source || 'replace';
+    } else {
+      entry.min_lpa = entry.min_lpa == null ? it.min_lpa : Math.min(entry.min_lpa, it.min_lpa ?? entry.min_lpa);
+      entry.max_lpa = entry.max_lpa == null ? it.max_lpa : Math.max(entry.max_lpa, it.max_lpa);
+      if (it.cash_lpa != null) entry.cash_lpa = entry.cash_lpa == null ? it.cash_lpa : Math.max(entry.cash_lpa, it.cash_lpa);
+      if (it.cash_min_lpa != null) entry.cash_min_lpa = entry.cash_min_lpa == null ? it.cash_min_lpa : Math.max(entry.cash_min_lpa, it.cash_min_lpa);
+    }
     entry.confidence = 'observed';
     entry.sources = [...new Set([...(entry.sources || []), String(it.source || 'merge').slice(0, 140)])].slice(0, 5);
     if (it.levels) entry.levels = it.levels;
@@ -174,8 +190,8 @@ const cmd = pos[0];
 if (cmd === 'import') {
   runImport();
 } else if (cmd === 'merge') {
-  if (!pos[1]) { console.error('usage: payest merge <file.json>'); process.exit(2); }
-  runMerge(pos[1]);
+  if (!pos[1]) { console.error('usage: payest merge <file.json> [--replace]'); process.exit(2); }
+  runMerge(pos[1], Boolean(flags.replace));
 } else if (cmd === 'estimate') {
   const store = load();
   let company = flags.company || '';
