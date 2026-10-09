@@ -76,6 +76,13 @@ resolution decoded HSBC / Nationwide-Workday / Google Careers / TELUS-Ashby / Ve
 to real ATS URLs; warm-path found 1 × 1st + 10 × 2nd at Tether; Naukri collected 40 cards over
 2 pages.
 
+## Removed 2026-10-09 — Naukri channel dropped (user call)
+
+Naukri sweeps produced no relevant roles in practice, so the channel leaves the skill entirely:
+`naukri-sweep.mjs` deleted; Naukri removed from the sweep channels (finder `SKILL.md` §2), the
+local-boards playbook (§4), and the README. Sweep channels are now ATS boards + LinkedIn
+(signed-in) + fresh supplements; the 2026-10-05 entry above stays as history.
+
 ## 1. Quality — the skill layer
 
 **Strengths (no action):** SKILL.md files are well under the 500-line budget (97 and 128 lines),

@@ -76,10 +76,6 @@ Use the user's city/metro from the profile:
 - **LinkedIn Jobs** (signed in — §2, scripted): `linkedin-sweep.mjs run` covers on-site/hybrid/
   remote via separate queries; manual pattern is city geoId + `f_WT=1|3|2` with `f_TPR` and
   `sortBy=DD`.
-- **Naukri** (India — scripted): `node scripts/naukri-sweep.mjs run` — date-sorted, Hyderabad by
-  default (`--loc`), paginates via canonical `-N` URLs. Cross-check shortlisted roles against the
-  employer's own portal; Naukri's apply flow is often the employer's chosen channel, so treat the
-  Naukri posting as the application target when no company posting exists.
 - **Cutshort / Instahyre / iimjobs** (India, manual — login-walled) · **Otta** (UK/US/EU) ·
   **Jobs.ch** (CH) · **StepStone/Xing** (DACH) · **Seek** (AU/NZ) — the regional board splits by
   market; use what the profile's country implies.

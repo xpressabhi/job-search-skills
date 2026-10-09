@@ -1,5 +1,5 @@
 // sweep-lib.mjs — shared helpers for the browser-driven sweep tools
-// (linkedin-sweep, warm-path, naukri-sweep).
+// (linkedin-sweep, warm-path).
 //
 // Drives the apply-to-jobs chrome.mjs CDP driver so every browser sweep uses
 // the dedicated, signed-in Chrome profile in ~/.job-search/chrome-profile.

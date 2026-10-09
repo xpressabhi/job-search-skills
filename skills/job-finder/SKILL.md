@@ -17,10 +17,9 @@ floor, exclusions); the tracker is the memory.
 - Browser decisions: the apply skill's `chrome.mjs decide` + `do` drive page actions through
   the Jev browser-decision loop — never guess a control from coordinates.
 - Browser sweeps: `scripts/linkedin-sweep.mjs` (signed-in LinkedIn Jobs discovery + original-
-  posting resolution), `scripts/naukri-sweep.mjs` (Naukri, India), and `scripts/warm-path.mjs`
-  (1st/2nd-degree referral check). All drive the apply skill's `chrome.mjs` against the dedicated
-  signed-in profile; run `linkedin-sweep.mjs check` first — a login wall means the user signs in
-  once in the visible Chrome window.
+  posting resolution) and `scripts/warm-path.mjs` (1st/2nd-degree referral check). Both drive the
+  apply skill's `chrome.mjs` against the dedicated signed-in profile; run `linkedin-sweep.mjs check`
+  first — a login wall means the user signs in once in the visible Chrome window.
 - Quality gate: `scripts/crosscheck.mjs --profile P --roles R.json` — the mandatory Jev
   cross-check (rank + fit + requirements + redflags) every role passes before it is presented.
   Only PRESENT roles are reported; everything else is dropped (user MUST, 2026-10-05).
@@ -53,14 +52,12 @@ list`); use `reference/search-playbook.md` §2–§7 for sweep technique (ATS JS
 `reference/ats-apis.md`), boards, X, query patterns, and the user's company lists. Ignored companies
 are never fetched.
 
-**Sweep channels — run all four every sweep** (unless the user narrows the ask):
+**Sweep channels — run all three every sweep** (unless the user narrows the ask):
 1. **ATS boards** — the default pool via JSON endpoints.
 2. **LinkedIn Jobs** (signed-in): `node scripts/linkedin-sweep.mjs run`, then
    `node scripts/linkedin-sweep.mjs resolve --in <file> --limit N` so every role kept points at the
    employer's own posting; report a LinkedIn URL only for Easy-Apply-only listings (flag it).
-3. **Naukri** (India): `node scripts/naukri-sweep.mjs run` (date-sorted) — cards are discovery;
-   cross-check the employer's own portal for shortlisted roles.
-4. **Fresh supplements** — HN "Who is hiring?" (current month), remote boards, X, company lists
+3. **Fresh supplements** — HN "Who is hiring?" (current month), remote boards, X, company lists
    (playbook §3–§7) when the primary channels yield too few or the user asks wider.
 
 **Company pre-screen — before any board fetch.** One `company-screen` call per company replaces a
