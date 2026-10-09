@@ -13,3 +13,6 @@ Thumbs.db
 
 # Local test artifacts
 node_modules/
+
+# Debug page dumps from ATS/browser sweeps
+probs-*.json
