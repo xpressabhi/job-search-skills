@@ -5,33 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>job-search-skills — your job search, as two agent skills</title>
 <meta name="description" content="Find roles you can actually get — level and stack matched by Jev, applied through your own Chrome, with a local tracker that remembers everything. MIT, no server, no account.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b7f5c'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23fdfdfc'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23a13a1f'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23fdfdfc'/%3E%3C/svg%3E">
 <style>
+  /* Bridge job-search-skills' local variable names onto the shared theme (theme.css).
+     Component rules below are this site's own. */
   :root {
-    color-scheme: light dark;
-    --bg: #f7f7f5;
-    --surface: #fdfdfc;
-    --text: #191b1a;
-    --muted: #6c706d;
-    --line: #e5e5e2;
-    --code: #f1f1ee;
-    --accent: #0b7f5c;
-    --accent-ink: #f4fbf8;
-    --accent-soft: rgba(11, 127, 92, .07);
+    --bg: var(--paper);
+    --surface: var(--panel);
+    --text: var(--ink);
+    --muted: var(--ink-2);
+    --line: var(--rule);
+    --code: var(--panel);
+    --accent-ink: var(--panel);
+    --accent-soft: rgba(161, 58, 31, 0.07);
     --radius: 12px;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0f1110;
-      --surface: #161917;
-      --text: #e9ebe9;
-      --muted: #9aa09c;
-      --line: #272b28;
-      --code: #141715;
-      --accent: #3ecf8e;
-      --accent-ink: #07271a;
-      --accent-soft: rgba(62, 207, 142, .08);
-    }
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
@@ -46,28 +33,16 @@
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; text-underline-offset: 3px; }
   a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-  .wrap { max-width: 1020px; margin: 0 auto; padding: 0 24px; }
 
   /* nav */
-  header {
-    border-bottom: 1px solid var(--line);
-    position: sticky; top: 0; z-index: 10;
-    background: var(--bg);
-    background: color-mix(in srgb, var(--bg) 88%, transparent);
-    backdrop-filter: blur(8px);
-  }
-  nav { display: flex; align-items: center; justify-content: space-between; height: 60px; }
-  nav .brand { font-weight: 600; letter-spacing: -.01em; color: var(--text); text-decoration: none; }
-  nav .brand:hover { text-decoration: none; opacity: .8; }
-  nav .brand span { color: var(--accent); }
-  nav .links { display: flex; gap: 18px; font-size: .9rem; }
-  nav .links a { color: var(--muted); }
-  nav .links a:hover { color: var(--text); text-decoration: none; }
+  /* header structure comes from theme.css (.nav/.nav-in/.wordmark/.nav-links) */
+  .wordmark span { color: var(--accent); }
 
   /* hero */
-  .hero { display: grid; grid-template-columns: 1.15fr .85fr; gap: 56px; align-items: center; padding: 72px 24px 88px; }
+  .hero { display: grid; grid-template-columns: 1.15fr .85fr; gap: 56px; align-items: center; padding: 72px 0 88px; }
   .hero > *, .local > * { min-width: 0; }
-  h1 { font-size: clamp(2rem, 4.6vw, 3rem); line-height: 1.08; letter-spacing: -.03em; margin: 0 0 16px; max-width: 14ch; text-wrap: balance; }
+  h1 { font-size: clamp(2rem, 4.6vw, 3rem); margin: 0 0 16px; max-width: 14ch; text-wrap: balance; }
+  h2 { font-family: var(--serif); font-weight: 400; }
   .sub { color: var(--muted); margin: 0 0 28px; max-width: 46ch; }
   .run { display: inline-flex; align-items: center; gap: 8px; font-size: .82rem; color: var(--muted); margin-bottom: 18px; }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
@@ -91,7 +66,7 @@
 
   /* sections */
   section { padding: 64px 0; border-top: 1px solid var(--line); }
-  h2 { font-size: 1.05rem; letter-spacing: -.01em; margin: 0 0 8px; }
+  h2 { font-size: 1.15rem; letter-spacing: -.01em; margin: 0 0 8px; }
   .lede { color: var(--muted); margin: 0 0 36px; max-width: 58ch; }
 
   /* skills rows */
@@ -127,7 +102,8 @@
   .free p { margin: 0; }
   .free .note { color: var(--muted); font-size: .86rem; }
 
-  footer.wrap { padding: 36px 24px 56px; font-size: .85rem; color: var(--muted); display: flex; gap: 18px; flex-wrap: wrap; }
+  /* footer structure comes from theme.css (.footer/.footer-in) */
+  .footer-in > * { font-size: .85rem; color: var(--muted); }
   footer a { color: var(--muted); }
   footer a:hover { color: var(--text); text-decoration: none; }
 
@@ -141,8 +117,8 @@
   }
   @media (max-width: 520px) {
     .wrap { padding: 0 18px; }
-    nav .links { gap: 12px; font-size: .82rem; }
-    .hero { gap: 26px; padding: 44px 18px 52px; }
+    .nav-links { gap: 12px; font-size: .82rem; }
+    .hero { gap: 26px; padding: 44px 0 52px; }
     h1 { font-size: clamp(1.8rem, 8.5vw, 2.1rem); max-width: none; }
     .sub { margin-bottom: 22px; }
     .install { max-width: none; }
@@ -159,7 +135,7 @@
     .steps { gap: 24px; }
     .local { gap: 24px; }
     .free .wrap { padding-top: 26px; padding-bottom: 26px; }
-    footer.wrap { padding: 28px 18px 44px; gap: 12px 16px; }
+    .footer-in { gap: 12px 16px; }
   }
   @media (max-width: 360px) {
     .install pre { font-size: .72rem; }
@@ -174,17 +150,18 @@
   }
   @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 </style>
+<link rel="stylesheet" href="theme.css">
 </head>
 <body>
 
-<header>
-  <nav class="wrap" aria-label="Main">
-    <a class="brand" href="https://xpressabhi.github.io/">job-search-skills<span>.</span></a>
-    <div class="links">
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="wordmark" href="https://xpressabhi.github.io/">job-search-skills<span>.</span></a>
+    <nav class="nav-links" aria-label="Main">
       <a href="https://github.com/xpressabhi/job-search-skills">GitHub</a>
       <a href="https://github.com/xpressabhi/job-search-skills#readme">README</a>
-    </div>
-  </nav>
+    </nav>
+  </div>
 </header>
 
 <main>
@@ -320,12 +297,14 @@
   </div>
 </main>
 
-<footer class="wrap">
+<footer class="footer">
+  <div class="wrap footer-in">
   <span>MIT</span>
   <a href="https://github.com/xpressabhi/job-search-skills">GitHub</a>
   <a href="https://github.com/xpressabhi/job-search-skills#readme">Full README</a>
   <span>Works with OpenCode, Claude Code, Codex, Cursor.</span>
   <p class="projects-bar">More by Abhishek Maurya · <a href="https://xpressabhi.github.io/ordo/" style="color:var(--accent, inherit)">ordo</a> · <a href="https://xpressabhi.github.io/jev-browser/" style="color:var(--accent, inherit)">jev-browser</a> · <span aria-current="page">job-search-skills</span> · <a href="https://xpressabhi.github.io/intent/" style="color:var(--accent, inherit)">intent</a> · <a href="https://xpressabhi.github.io/job-radar/" style="color:var(--accent, inherit)">job-radar</a> · <a href="https://xpressabhi.github.io/tutor/" style="color:var(--accent, inherit)">tutor</a> · <a href="https://xpressabhi.github.io/#projects" style="color:var(--accent, inherit)">portfolio →</a></p>
+  </div>
 </footer>
 
 <script>
