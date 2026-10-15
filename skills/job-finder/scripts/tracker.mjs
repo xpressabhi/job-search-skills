@@ -95,18 +95,27 @@ function nextId(rows) {
 const norm = (s) => String(s ?? '').trim().replace(/\s+/g, ' ');
 const normKey = (s) => norm(s).toLowerCase();
 // Canonicalize posting URLs for dedupe without merging distinct roles:
-// strip hash + known tracking params only (utm_*, gh_src/gh_jid, lever-*,
-// click IDs). All other query params (e.g. ?jobId=) are preserved so
-// query-identified postings still dedupe distinctly. No stored data is
-// rewritten — both sides go through this on lookup.
+// strip hash + known tracking params only (utm_*, gh_src, lever-*, click
+// IDs). gh_jid is stripped only when the path already carries the same job
+// id (greenhouse boards /jobs/123?gh_jid=123, okta.com/.../opportunity/123).
+// On own-domain boards where gh_jid IS the id (databricks.com/.../job?gh_jid=,
+// digitalocean.com/careers/position/apply/?gh_jid=), stripping it collapsed
+// every req into one key and silently suppressed new roles as "already seen"
+// (2026-10-13: 146 candidates falsely deduped across Databricks/DigitalOcean/
+// HighRadius/Okta/Observe.AI). All other query params (e.g. ?jobId=) are
+// preserved so query-identified postings still dedupe distinctly. No stored
+// data is rewritten — both sides go through this on lookup.
 const normUrl = (u) => {
   const s = norm(u);
   if (!s) return s;
   try {
     const parsed = new URL(s);
     parsed.hash = '';
+    const ghJid = parsed.searchParams.get('gh_jid');
     for (const key of [...parsed.searchParams.keys()]) {
-      if (/^(utm_.*|gh_src|gh_jid|fbclid|gclid|msclkid|mc_cid|mc_eid|igshid|vero_id)$/i.test(key) || /^lever-/i.test(key)) {
+      if (/^(utm_.*|gh_src|fbclid|gclid|msclkid|mc_cid|mc_eid|igshid|vero_id)$/i.test(key) || /^lever-/i.test(key)) {
+        parsed.searchParams.delete(key);
+      } else if (/^gh_jid$/i.test(key) && ghJid && parsed.pathname.includes(ghJid)) {
         parsed.searchParams.delete(key);
       }
     }
@@ -1362,6 +1371,18 @@ const commands = {
       const list = run(['list', '--all']);
       const hits = list.split('\n').filter((l) => l.includes('Staff Engineer') && l.includes('Acme'));
       if (hits.length !== 2) throw new Error(`expected 2 distinct rows, got ${hits.length}`);
+    });
+    check('gh_jid is the id on own-domain boards, tracking only when the path carries it', () => {
+      const a = run(['seen', 'https://example.com/careers/job?gh_jid=111111', 'GhJidCo', 'Staff Engineer']);
+      if (!a.startsWith('NEW')) throw new Error(`expected NEW, got ${a}`);
+      const b = run(['seen', 'https://example.com/careers/job?gh_jid=222222', 'GhJidCo', 'Principal Engineer']);
+      if (!b.startsWith('NEW')) throw new Error(`expected NEW (distinct gh_jid stays distinct), got ${b}`);
+      const c = runFail(['seen', 'https://example.com/careers/job?gh_jid=111111', 'GhJidCo', 'Staff Engineer'], 1);
+      if (!c.startsWith('ALREADY SEEN')) throw new Error(`expected ALREADY SEEN, got ${c}`);
+      const d = run(['seen', 'https://boards.example.com/jobs/333?gh_jid=333', 'GhJidCo', 'Lead Engineer']);
+      if (!d.startsWith('NEW')) throw new Error(`expected NEW, got ${d}`);
+      const e = runFail(['seen', 'https://boards.example.com/jobs/333', 'GhJidCo', 'Lead Engineer'], 1);
+      if (!e.startsWith('ALREADY SEEN')) throw new Error(`expected ALREADY SEEN (path id carries it), got ${e}`);
     });
     check('url-less row still dedupes by company+title', () => {
       run(['seen', '', 'Umbrella', 'Data Engineer', '--mode', 'remote']);
