@@ -212,8 +212,16 @@ function fitComposite(coverage, stack, seniority, domain) {
 // Below/above-level and named-requirement-missing roles DROP by default:
 // when level doesn't match, comp doesn't match, and the application dies.
 // `lenient: true` (rank --lenient) restores the old soft caps.
-const MIN_COVERAGE_DROP = 1.5;   // a named core requirement missing → drop
+// Policy wiring (user-approved 2026-10-12): the surface bar lives in the profile
+// (search.quality_gate.coverage.surface_bar) so the documented criteria and this
+// code cannot drift apart. 1.15 is the fallback for commands without a profile.
+let MIN_COVERAGE_DROP = 1.15;   // below the surface bar a role is a skip-line, never surfaced
 const MIN_COVERAGE_FULL = 2.25;  // cover-most bar for a clean good/strong
+
+function applyPolicySurfaceBar(profile) {
+  const v = profile?.search?.quality_gate?.coverage?.surface_bar;
+  if (typeof v === 'number' && Number.isFinite(v)) MIN_COVERAGE_DROP = v;
+}
 
 function applyFitGates(composite, label, gates, { lenient = false } = {}) {
   const reasons = [];
@@ -1008,6 +1016,7 @@ async function pMap(items, n, fn) {
 
 async function cmdRank(opts) {
   const profile = asJson(readOpt(opts['--profile']), '--profile');
+  applyPolicySurfaceBar(profile);
   const roles = asJson(readOpt(opts['--roles']), '--roles');
   if (!Array.isArray(roles)) fail('--roles must be a JSON array');
   const candidate = redactProfile(profile);
@@ -1360,7 +1369,14 @@ function cmdSelftest() {
   ok('track mismatch drops the role',
     applyFitGates(0.9, 'strong', { track_ok: 0.1, level_ok: 0.9, coverage: 2.5 }).verdict === 'ineligible');
   ok('coverage below drop bar kills the role',
-    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, coverage: 1.2 }).verdict === 'ineligible');
+    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, coverage: 1.1 }).verdict === 'ineligible');
+  ok('policy surface bar: coverage 1.2 survives the drop gate (2026-10-12)',
+    applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, level_band: 'at', coverage: 1.2 }).verdict === null);
+  ok('policy surface bar is profile-driven',
+    (() => { applyPolicySurfaceBar({ search: { quality_gate: { coverage: { surface_bar: 1.6 } } } });
+      const drop = applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, coverage: 1.5 }).verdict === 'ineligible';
+      applyPolicySurfaceBar({ search: { quality_gate: { coverage: { surface_bar: 1.15 } } } });
+      return drop; })());
   ok('level below candidate band drops by default',
     applyFitGates(0.8, 'strong', { track_ok: 0.9, level_ok: 0.9, level_band: 'below', coverage: 2.5 }).verdict === 'ineligible');
   ok('level above candidate band drops by default',

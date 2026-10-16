@@ -94,7 +94,7 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crosscheck-'));
 let rankById = new Map();
 let rankError = '';
 try {
-  const ranked = jev(['rank', '--profile', profileFile, '--roles', rolesFile]);
+  const ranked = jev(['rank', '--profile', profileFile, '--roles', rolesFile, '--max-age', String(maxAge)]);
   for (const r of ranked.roles || []) rankById.set(String(r.id), r);
 } catch (err) {
   rankError = String(err.stderr || err.message || err).slice(0, 300);
