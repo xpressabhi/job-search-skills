@@ -375,6 +375,12 @@ function fastRelocation(candidate, role) {
   if (candidate.relocation_ok) return 1;
   const mode = String(role.mode || '').toLowerCase();
   if (/remote/.test(mode) && !/hybrid|on-?site/.test(mode)) return 1;
+  // Remote-looking location strings ("Remote, Global", "India (Remote)",
+  // "United States (Remote-First)") mean no relocation is forced even when the
+  // board left workplaceType empty (Ashby postings without it, LinkedIn cards).
+  // Country eligibility is judged by location_eligible, not here.
+  const locRaw = String(role.location || '').toLowerCase();
+  if (/remote|worldwide|anywhere|work from home|wfh|distributed/.test(locRaw) && !/hybrid|on-?site/.test(locRaw)) return 1;
   const loc = normCity(role.location || '');
   const home = (candidate.cities || []).map(normCity).filter(Boolean);
   if (loc && home.some((c) => loc.includes(c))) return 1;
@@ -1470,6 +1476,12 @@ function cmdSelftest() {
     fastRelocation(hydCand, { mode: 'on-site', location: 'Pune, India' }) === null);
   ok('fastRelocation defers when silent',
     fastRelocation(hydCand, { mode: '', location: '' }) === null);
+  ok('fastRelocation passes remote-looking location without mode',
+    fastRelocation(hydCand, { mode: '', location: 'Remote, Global' }) === 1);
+  ok('fastRelocation passes "India (Remote)" without mode',
+    fastRelocation(hydCand, { mode: '', location: 'India (Remote)' }) === 1);
+  ok('fastRelocation still defers on foreign hybrid location',
+    fastRelocation(hydCand, { mode: '', location: 'Hybrid, Bangalore' }) === null);
   // Company pre-screen verdict composition.
   const sweepDims = { product_company: { noul: 0.9 }, hires_in_candidate_market: { noul: 0.85 },
     pays_below_floor: { noul: 0.15 }, candidate_fit: { noul: 0.8 }, enough_information: { noul: 0.9 } };
